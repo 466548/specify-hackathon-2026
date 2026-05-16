@@ -99,7 +99,15 @@ function ResultInner() {
 
   // sessionStorage は SSR で no-op のためマウント後に effect で読む。
   // react-hooks/set-state-in-effect の suppress 理由は page.tsx と同じ。
+  //
+  // sessionId が変わった瞬間、useEffect 実行前のレンダリングで前 session の result
+  // が一瞬残ってチラつくため、effect 冒頭で先に state を null に戻す。これで
+  // 新 result が setState されるまでは null チェックで Loading 状態の return が走る。
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setResult(null);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPrdId(null);
     if (!sessionId) {
       router.replace("/");
       return;
