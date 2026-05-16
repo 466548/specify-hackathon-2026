@@ -9,7 +9,23 @@
  * という最小実装にする。自動再接続なし（MVP）。
  */
 
-import type { ProgressEvent, ProgressEventType, Result } from "./types";
+import type {
+  ErrorPayload,
+  ErrorType,
+  ProgressEvent,
+  ProgressEventType,
+  Result,
+} from "./types";
+
+/** onError ハンドラに渡す構造化エラー情報。 */
+export interface StructuredError {
+  /** UI 表示用のメッセージ文字列。 */
+  message: string;
+  /** 不明時 "unknown"（接続失敗 / ストリーム読み取り失敗等のクライアント側エラー含む）。 */
+  errorType: ErrorType;
+  /** false なら「再試行」ボタンを出さない。 */
+  retryable: boolean;
+}
 
 /** バックエンド側で 1 メッセージの data 部に詰める形（api.py の _to_sse_message と一致）。 */
 interface SsePayload {
@@ -27,7 +43,7 @@ export interface SseHandlers {
   /** output 時、最終結果。これを受けたら /result に遷移する想定。 */
   onOutput?: (result: Result) => void;
   /** error 時。HTTP エラーやストリーム途中の error イベント両方をここに集約。 */
-  onError?: (message: string) => void;
+  onError?: (error: StructuredError) => void;
 }
 
 /**
@@ -104,13 +120,31 @@ export function openAnalyzeStream(
       });
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
-      handlers.onError?.(`接続失敗: ${(e as Error).message}`);
+      // fetch 自体が失敗（バックエンド未起動 / ネットワーク断 / CORS 等）。
+      // ユーザーは再試行で復旧する可能性が高いので retryable=true。
+      handlers.onError?.({
+        message: `接続失敗: ${(e as Error).message}`,
+        errorType: "timeout",
+        retryable: true,
+      });
       return;
     }
 
     if (!res.ok || !res.body) {
       const detail = await res.text().catch(() => "");
-      handlers.onError?.(`API error ${res.status}: ${detail}`);
+      // HTTP エラーは status から推測。401/403 は auth、429 は rate_limit、それ以外は unknown。
+      const errorType: ErrorType =
+        res.status === 401 || res.status === 403
+          ? "auth"
+          : res.status === 429
+            ? "rate_limit"
+            : "unknown";
+      const retryable = errorType !== "auth";
+      handlers.onError?.({
+        message: `API error ${res.status}: ${detail}`,
+        errorType,
+        retryable,
+      });
       return;
     }
 
@@ -142,12 +176,23 @@ export function openAnalyzeStream(
         } else if (raw.event === "output") {
           handlers.onOutput?.(payload.data as Result);
         } else if (raw.event === "error") {
-          handlers.onError?.(payload.message);
+          // バックエンド側で classify_exception 済み。data に error_type / retryable が乗ってくる。
+          // 古いバックエンドや想定外形式に備えて default を unknown / retryable=true にする。
+          const errPayload = (payload.data ?? null) as ErrorPayload | null;
+          handlers.onError?.({
+            message: payload.message,
+            errorType: errPayload?.error_type ?? "unknown",
+            retryable: errPayload?.retryable ?? true,
+          });
         }
       }
     } catch (e) {
       if ((e as Error).name === "AbortError") return;
-      handlers.onError?.(`ストリーム読み取りエラー: ${(e as Error).message}`);
+      handlers.onError?.({
+        message: `ストリーム読み取りエラー: ${(e as Error).message}`,
+        errorType: "unknown",
+        retryable: true,
+      });
     }
   })();
 

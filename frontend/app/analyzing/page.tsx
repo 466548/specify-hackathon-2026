@@ -13,10 +13,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { Card } from "@/components/ui/Card";
 import { Spinner } from "@/components/ui/Spinner";
-import { Button } from "@/components/ui/Button";
+import { ErrorBanner } from "@/components/ui/ErrorBanner";
 import { EventList } from "@/components/ui/EventList";
 import { loadPrd, saveResult } from "@/lib/session-storage";
-import { openAnalyzeStream } from "@/lib/sse-client";
+import { openAnalyzeStream, type StructuredError } from "@/lib/sse-client";
 import type { ProgressEvent, Result } from "@/lib/types";
 
 type AgentState = "idle" | "running" | "completed";
@@ -106,7 +106,10 @@ function AnalyzingInner() {
     reviewer_aggregator: "idle",
   });
   const [events, setEvents] = useState<ProgressEvent[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<StructuredError | null>(null);
+  // 「再試行」用の incrementing key。useEffect の deps に含めることで、ref を
+  // リセットしたうえで effect を再走させ、同じ session で SSE をやり直せる。
+  const [retryKey, setRetryKey] = useState(0);
 
   // React 19 / Next.js 16 dev の Strict Mode 対策。
   //
@@ -164,26 +167,43 @@ function AnalyzingInner() {
         saveResult(sessionId, result);
         router.push(`/result?session=${sessionId}`);
       },
-      onError: (message) => {
-        setError(message);
+      onError: (err) => {
+        setError(err);
       },
     });
 
     // 意図的に cleanup を返さない。Strict Mode の二重 mount cycle で SSE が abort されると
     // Next dev server 経由の二回目の fetch が body 空で返る現象を回避するため。
     // SSE は output イベント受信時の router.push で自然終了する。
-  }, [sessionId, router]);
+  }, [sessionId, router, retryKey]);
 
   if (error) {
+    // 「再試行」: session / PRD はそのまま、状態だけリセットして useEffect を再走させる。
+    // sseStartedRef.current = false で再 mount 時の guard を外し、retryKey を増やして
+    // useEffect の deps を変化させ effect を再実行する。
+    const handleRetry = () => {
+      sseStartedRef.current = false;
+      setError(null);
+      setEvents([]);
+      setAgentStates({
+        PlannerAgent: "idle",
+        DecisionAgent: "idle",
+        EdgeCaseAgent: "idle",
+        PastPRDAgent: "idle",
+        reviewer_aggregator: "idle",
+      });
+      setRetryKey((k) => k + 1);
+    };
     return (
       <main className="flex-1 w-full max-w-2xl mx-auto px-6 py-12 flex flex-col gap-4">
         <h1 className="text-xl font-semibold">エラー</h1>
-        <Card>
-          <p className="text-sm text-error">{error}</p>
-        </Card>
-        <div className="flex gap-2">
-          <Button onClick={() => router.push("/")}>もう一度</Button>
-        </div>
+        <ErrorBanner
+          errorType={error.errorType}
+          message={error.message}
+          retryable={error.retryable}
+          onRetry={error.retryable ? handleRetry : undefined}
+          onReset={() => router.push("/")}
+        />
       </main>
     );
   }
