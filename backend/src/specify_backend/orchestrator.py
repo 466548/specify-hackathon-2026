@@ -154,7 +154,10 @@ async def run_pipeline_streaming(prd_text: str) -> AsyncIterator[ProgressEvent]:
         type="notion_fetch_started",
         message="Notion: 過去 PRD を取得中",
     )
-    past_prds, notion_failure = fetch_past_prds()
+    # Past PRD は KintaiKit のコア方針（監査ログ・個人情報・承認フロー等）として
+    # 共通使用。Demo PRD は 3 機能とも KintaiKit のため domain="kintaikit" 固定。
+    # 将来 EC / Medical に拡張する際は引数化する。
+    past_prds, notion_failure = fetch_past_prds(domain="kintaikit")
     extra_failed: list[str] = (
         [f"past_prd_agent ({notion_failure})"] if notion_failure else []
     )
