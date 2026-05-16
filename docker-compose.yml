@@ -1,0 +1,49 @@
+# Specify をローカルで E2E（フロント + バックエンド + SSE）で動かす検証用 compose。
+#
+# 使い方:
+#   1. プロジェクトルートに .env を置く（OPENAI_API_KEY / NOTION_API_KEY /
+#      NOTION_DATABASE_ID を含む）。.env.example を参考に。
+#   2. `docker compose up --build` で両サービスを起動。
+#   3. http://localhost:3000 にアクセス。Route Handler 経由で SSE が流れることを
+#      DevTools の EventStream タブで確認。
+#
+# 本番 Azure ではこの compose は使わず、Container Apps と App Service に
+# それぞれ個別にデプロイする（docs/deploy-research.md 参照）。
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: specify-backend:local
+    ports:
+      - "8000:8000"
+    env_file:
+      # プロジェクトルートの .env を読み込む（OPENAI / Notion キー）。
+      - .env
+    healthcheck:
+      # /api/health を 5 秒間隔で叩いて起動完了を判定。frontend が depends_on で
+      # 待つために使う。
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    image: specify-frontend:local
+    ports:
+      # ホスト 3002 → コンテナ 3000。ホストの 3000 (npm run dev) や 3001 (他 dev)
+      # と衝突しないようずらす。本番では関係なし（Azure 側の port マッピング）。
+      - "3002:3000"
+    environment:
+      # Route Handler から内部 DNS 名で backend を呼ぶ。Docker network 内では
+      # `backend` というホスト名で解決される（service 名 = ホスト名）。
+      BACKEND_URL: http://backend:8000
+      NODE_ENV: production
+    depends_on:
+      backend:
+        condition: service_healthy
