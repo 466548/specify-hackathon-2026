@@ -273,52 +273,67 @@ function PipelineSvg({
       agentState === undefined || agentState === "completed" ? undefined : "3,3",
   });
 
+  // レイアウト定数:
+  //   - 各並列ボックス高さ 40、間に 8px のギャップを入れて重なり / 接触感を解消
+  //   - 並列の中央列 (EdgeCase) の縦中心 = 64 を基準に Planner / Reviewer を縦中央寄せ
+  //   - viewBox 高は 128（並列 3 つ + 上下マージン）
+  const BOX_H = 40;
+  const GAP = 8;
+  const TOP = 4; // 上下に少しだけ余白
+  const Y_TOP = TOP; // 4
+  const Y_MID = TOP + BOX_H + GAP; // 52
+  const Y_BOT = TOP + (BOX_H + GAP) * 2; // 100
+  const C_TOP = Y_TOP + BOX_H / 2; // 24
+  const C_MID = Y_MID + BOX_H / 2; // 72
+  const C_BOT = Y_BOT + BOX_H / 2; // 120
+  const VB_H = Y_BOT + BOX_H + TOP; // 144
+
   return (
     <svg
-      viewBox="0 0 640 140"
+      viewBox={`0 0 640 ${VB_H}`}
       xmlns="http://www.w3.org/2000/svg"
       className="w-full h-auto block"
       role="img"
       aria-label="パイプライン: Planner から並列3 Agent を経て Reviewer へ"
     >
-      {/* Planner → parallel コネクタ */}
+      {/* Planner → parallel コネクタ（Planner の右端中央 (90, C_MID) から各並列の左端中央へ） */}
       <path
-        d="M 90 70 L 200 30"
+        d={`M 90 ${C_MID} L 200 ${C_TOP}`}
         {...connStyle(connColorIn(agentStates.DecisionAgent), agentStates.DecisionAgent)}
       />
       <path
-        d="M 90 70 L 200 70"
+        d={`M 90 ${C_MID} L 200 ${C_MID}`}
         {...connStyle(connColorIn(agentStates.EdgeCaseAgent), agentStates.EdgeCaseAgent)}
       />
       <path
-        d="M 90 70 L 200 110"
+        d={`M 90 ${C_MID} L 200 ${C_BOT}`}
         {...connStyle(connColorIn(agentStates.PastPRDAgent), agentStates.PastPRDAgent)}
       />
 
-      {/* parallel → Reviewer コネクタ */}
+      {/* parallel → Reviewer コネクタ（各並列の右端中央から Reviewer 左端中央 (490, C_MID) へ） */}
       <path
-        d="M 380 30 L 490 70"
+        d={`M 380 ${C_TOP} L 490 ${C_MID}`}
         {...connStyle(connColorOut(agentStates.DecisionAgent), agentStates.DecisionAgent)}
       />
       <path
-        d="M 380 70 L 490 70"
+        d={`M 380 ${C_MID} L 490 ${C_MID}`}
         {...connStyle(connColorOut(agentStates.EdgeCaseAgent), agentStates.EdgeCaseAgent)}
       />
       <path
-        d="M 380 110 L 490 70"
+        d={`M 380 ${C_BOT} L 490 ${C_MID}`}
         {...connStyle(connColorOut(agentStates.PastPRDAgent), agentStates.PastPRDAgent)}
       />
 
-      {/* Planner */}
-      <PipelineBox x={20} y={50} w={70} h={40} centered style={planner} name={PLANNER.fullName} />
+      {/* Planner: 並列中央列に縦中心を合わせる */}
+      <PipelineBox x={20} y={Y_MID} w={70} h={BOX_H} centered style={planner} name={PLANNER.fullName} />
 
-      {/* Parallel 3 */}
-      <PipelineBox x={200} y={10} w={180} h={40} style={decision} name="Decision Agent" />
-      <PipelineBox x={200} y={50} w={180} h={40} style={edgeCase} name="EdgeCase Agent" />
-      <PipelineBox x={200} y={90} w={180} h={40} style={pastPrd} name="Past PRD Agent" />
+      {/* Parallel 3: 8px のギャップ */}
+      <PipelineBox x={200} y={Y_TOP} w={180} h={BOX_H} style={decision} name="Decision Agent" />
+      <PipelineBox x={200} y={Y_MID} w={180} h={BOX_H} style={edgeCase} name="EdgeCase Agent" />
+      <PipelineBox x={200} y={Y_BOT} w={180} h={BOX_H} style={pastPrd} name="Past PRD Agent" />
 
-      {/* Reviewer */}
-      <PipelineBox x={490} y={50} w={130} h={40} centered style={reviewer} name={REVIEWER.fullName} />
+      {/* Reviewer: 並列中央列に縦中心を合わせる */}
+      <PipelineBox x={490} y={Y_MID} w={130} h={BOX_H} centered style={reviewer} name={REVIEWER.fullName} />
     </svg>
   );
 }
