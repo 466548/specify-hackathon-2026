@@ -1,0 +1,43 @@
+# --- env ---
+.env
+.env.local
+.env.*.local
+
+# --- 私的な作業チャネル（Claude との対話メモ） ---
+答え.md
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- editor ---
+.vscode/
+.idea/
+*.swp
+
+# --- Node / Next.js ---
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- uv ---
+# uv.lock はコミットする（再現性のため）。uv のキャッシュのみ無視。
+.uv/
+
+# --- logs / build artifacts ---
+*.log
+dist/
+build/
+coverage/
