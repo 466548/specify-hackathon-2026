@@ -105,7 +105,7 @@ function Modal({ state }: { state: PreviewState }) {
   const dept = isEmpty ? "" : "営業部";
 
   return (
-    <div className="w-full max-w-md bg-card border border-border rounded-lg shadow-md">
+    <div className="w-full max-w-lg bg-card border border-border rounded-lg shadow-md">
       {/* ヘッダー */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <h3 className="text-sm font-semibold">メンバーを追加</h3>

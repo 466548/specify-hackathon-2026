@@ -127,18 +127,25 @@ function ResultInner() {
         <h2 className="text-lg font-semibold">
           決めるべきこと（{result.decisions.length} 件）
         </h2>
-        {decisionGroups.map((g) => (
-          <div key={g.priority} className="flex flex-col gap-2">
-            <h3 className="text-sm font-medium text-text-muted">
-              <PriorityBadge priority={g.priority} /> {g.items.length} 件
-            </h3>
-            <div className="flex flex-col gap-2">
-              {g.items.map((d, i) => (
-                <DecisionItem key={i} decision={d} />
-              ))}
+        {result.decisions.length === 0 ? (
+          <p className="text-sm text-text-muted">
+            未確定の論点は検出されませんでした。PRD が十分に具体的か、もしくは短すぎて Agent
+            が抽出できなかった可能性があります。
+          </p>
+        ) : (
+          decisionGroups.map((g) => (
+            <div key={g.priority} className="flex flex-col gap-2">
+              <h3 className="text-sm font-medium text-text-muted">
+                <PriorityBadge priority={g.priority} /> {g.items.length} 件
+              </h3>
+              <div className="flex flex-col gap-2">
+                {g.items.map((d, i) => (
+                  <DecisionItem key={i} decision={d} />
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </section>
 
       <section className="flex flex-col gap-3">
