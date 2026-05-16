@@ -3,51 +3,34 @@
 /**
  * 入力画面（/）。
  *
- * - PRD テキストを Textarea に入力
- * - 「分析開始」で sessionStorage に保存 → /analyzing?session=<id> へ
- * - 直前に入力した PRD があれば自動復元（ブラウザバック対応）
+ * Week 5 までは自由入力 Textarea だったが、デモ価値と Decision Agent の安定性
+ * を優先して、`lib/demo-prds.ts` に登録された KintaiKit 3 機能から選ぶ
+ * カード式 UI に変更した（5/17）。自由入力廃止により、審査員が変な PRD を
+ * 投げて Agent が誤動作するリスクが 0 になる。
+ *
+ * カードをクリックすると:
+ *   1. `savePrd(uuid, prd.prdText)` で sessionStorage に保存
+ *   2. `/analyzing?session=<uuid>` へ遷移
+ *   3. /analyzing 側で loadPrd して SSE で分析開始
+ *
+ * /analyzing → /result の流れは Week 5 と同じ。
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { Button } from "@/components/ui/Button";
-import { Textarea } from "@/components/ui/Textarea";
-import {
-  SessionStorageQuotaError,
-  loadLastPrd,
-  savePrd,
-} from "@/lib/session-storage";
+import { Card } from "@/components/ui/Card";
+import { DEMO_PRDS, type DemoPrd } from "@/lib/demo-prds";
+import { SessionStorageQuotaError, savePrd } from "@/lib/session-storage";
 
 export default function Home() {
   const router = useRouter();
-  const [prd, setPrd] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
-  // 起動時に直前の PRD を復元（/result → ブラウザバックで戻った時の利便性）。
-  // 確認ダイアログは出さず、そっとプリフィルする。
-  //
-  // React 19 の react-hooks/set-state-in-effect が effect 内の setState を警告するが、
-  // sessionStorage は SSR で no-op、クライアントマウント後にだけ値を読みたい、
-  // useState の lazy 初期化では SSR/CSR で値が食い違って hydration mismatch するため、
-  // effect で 1 回だけセットするのが最も安全。ここは意図的に suppress する。
-  useEffect(() => {
-    const last = loadLastPrd();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (last) setPrd(last);
-  }, []);
-
-  function handleAnalyze() {
-    const text = prd.trim();
-    if (!text) {
-      setError("PRD を入力してください");
-      return;
-    }
-    // crypto.randomUUID() は Web 標準（ブラウザネイティブ）。Node 環境では SSR でも動くが
-    // この関数は onClick から呼ばれるため必ずクライアント側で実行される。
+  function handleSelect(prd: DemoPrd) {
     const sessionId = crypto.randomUUID();
     try {
-      savePrd(sessionId, text);
+      savePrd(sessionId, prd.prdText);
     } catch (e) {
       if (e instanceof SessionStorageQuotaError) {
         setError(e.message);
@@ -59,24 +42,28 @@ export default function Home() {
   }
 
   return (
-    <main className="flex-1 w-full max-w-3xl mx-auto px-6 py-12 flex flex-col gap-6">
+    <main className="flex-1 w-full max-w-3xl mx-auto px-6 py-12 flex flex-col gap-8">
       <header className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">Specify</h1>
         <p className="text-sm text-text-muted">
           PRD から「決まっていない意思決定」を Agent が並列で洗い出します。
         </p>
+        <p className="text-sm text-text-muted">
+          下から PRD を 1 つ選んで分析を開始してください。
+        </p>
       </header>
 
-      <Textarea
-        label="PRD（製品要件書）"
-        value={prd}
-        onChange={(v) => {
-          setPrd(v);
-          if (error) setError(null);
-        }}
-        placeholder="ここに PRD をペーストしてください..."
-        rows={16}
-      />
+      {/* PRD 選択カード一覧 */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-medium text-text-muted">
+          KintaiKit（勤怠管理 SaaS）の新機能 PRD
+        </h2>
+        <div className="flex flex-col gap-3">
+          {DEMO_PRDS.map((prd) => (
+            <PrdCard key={prd.id} prd={prd} onSelect={handleSelect} />
+          ))}
+        </div>
+      </section>
 
       {error && (
         <div
@@ -86,12 +73,36 @@ export default function Home() {
           {error}
         </div>
       )}
-
-      <div className="flex justify-end">
-        <Button onClick={handleAnalyze} disabled={!prd.trim()}>
-          分析開始
-        </Button>
-      </div>
     </main>
+  );
+}
+
+/**
+ * PRD 選択カード。クリックで onSelect を呼ぶ。
+ * button 要素にして a11y / キーボード操作（Enter/Space）に対応。
+ */
+function PrdCard({
+  prd,
+  onSelect,
+}: {
+  prd: DemoPrd;
+  onSelect: (prd: DemoPrd) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(prd)}
+      className="text-left group"
+    >
+      <Card className="flex flex-col gap-2 transition group-hover:border-primary group-hover:shadow-md cursor-pointer">
+        <div className="flex items-center gap-2">
+          <span className="text-xs px-2 py-0.5 rounded bg-bg text-text-muted">
+            {prd.category}
+          </span>
+          <span className="text-base font-medium">{prd.title}</span>
+        </div>
+        <p className="text-sm text-text-muted">{prd.description}</p>
+      </Card>
+    </button>
   );
 }
