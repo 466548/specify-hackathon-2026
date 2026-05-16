@@ -28,7 +28,15 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
 
   function handleSelect(prd: DemoPrd) {
-    const sessionId = crypto.randomUUID();
+    // crypto.randomUUID() は secure context (https / localhost / 127.0.0.1) のみ動作。
+    // dev で LAN IP (192.168.x.x など) 経由アクセスすると例外を投げるため fallback を用意。
+    // 本番 Azure では HTTPS なので primary パスで通る。
+    let sessionId: string;
+    try {
+      sessionId = crypto.randomUUID();
+    } catch {
+      sessionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
     try {
       savePrd(sessionId, prd.prdText);
     } catch (e) {
@@ -92,7 +100,9 @@ function PrdCard({
     <button
       type="button"
       onClick={() => onSelect(prd)}
-      className="text-left group"
+      // block w-full でボタンの click 領域を Card の幅いっぱいに広げる。
+      // button のデフォルト display: inline-block だと右側のクリックを取りこぼすことがあった。
+      className="text-left group block w-full"
     >
       <Card className="flex flex-col gap-2 transition group-hover:border-primary group-hover:shadow-md cursor-pointer">
         <div className="flex items-center gap-2">
