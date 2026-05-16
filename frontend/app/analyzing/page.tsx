@@ -207,7 +207,10 @@ function AnalyzingInner() {
       {/* 開発者ログ折りたたみ */}
       <details className="bg-bg-secondary rounded-md px-3.5 py-2.5 mt-2">
         <summary className="text-xs text-text-muted cursor-pointer select-none flex items-center gap-1">
+          {/* shape は chevron right。details[open] のとき globals.css の
+              .specify-chevron ルールで 90deg 回転 → 下向きになる。 */}
           <svg
+            className="specify-chevron"
             width="13"
             height="13"
             viewBox="0 0 24 24"
@@ -218,8 +221,7 @@ function AnalyzingInner() {
             strokeLinejoin="round"
             aria-hidden="true"
           >
-            <polyline points="4 17 10 11 4 5" />
-            <line x1="12" y1="19" x2="20" y2="19" />
+            <polyline points="9 6 15 12 9 18" />
           </svg>
           実行ログを表示{" "}
           <span className="text-text-tertiary">(開発者向け)</span>{" "}

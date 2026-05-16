@@ -76,3 +76,8 @@ body {
   50% { opacity: 0.3; }
 }
 .specify-pulse { animation: specify-pulse 1.4s ease-in-out infinite; }
+
+/* <details> の開閉に応じて chevron を回転（閉=右向き / 開=下向き）。
+ * details > summary の中の .specify-chevron 要素に rotate を当てる。 */
+.specify-chevron { transition: transform 0.15s ease; }
+details[open] > summary .specify-chevron { transform: rotate(90deg); }
