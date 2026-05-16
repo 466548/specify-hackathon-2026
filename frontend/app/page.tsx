@@ -21,7 +21,11 @@ import { useRouter } from "next/navigation";
 
 import { Card } from "@/components/ui/Card";
 import { DEMO_PRDS, type DemoPrd } from "@/lib/demo-prds";
-import { SessionStorageQuotaError, savePrd } from "@/lib/session-storage";
+import {
+  SessionStorageQuotaError,
+  savePrd,
+  savePrdId,
+} from "@/lib/session-storage";
 
 export default function Home() {
   const router = useRouter();
@@ -39,6 +43,7 @@ export default function Home() {
     }
     try {
       savePrd(sessionId, prd.prdText);
+      savePrdId(sessionId, prd.id);
     } catch (e) {
       if (e instanceof SessionStorageQuotaError) {
         setError(e.message);

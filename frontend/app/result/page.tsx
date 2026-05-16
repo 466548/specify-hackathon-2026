@@ -13,9 +13,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { CategoryBadge, PriorityBadge } from "@/components/ui/Badge";
-import { loadResult } from "@/lib/session-storage";
+import { loadPrdId, loadResult } from "@/lib/session-storage";
 import type { Contradiction, Decision, Priority, Result } from "@/lib/types";
 import { MockModalPreview } from "./MockModalPreview";
+
+// MockModalPreview は KintaiKit ユーザー追加モーダルに特化した mock のため、
+// 同じ PRD を選んだ時だけ表示する。他機能（シフト自動 / 月次レポート）の選択時は
+// プレビューセクションごと非表示にする方針。将来 b/c 用の mock を作るなら
+// ここに分岐を増やす。
+const PRD_IDS_WITH_PREVIEW = new Set(["user-add"]);
 
 const PRIORITY_ORDER: Priority[] = ["must", "should", "nice"];
 
@@ -89,6 +95,7 @@ function ResultInner() {
   const sessionId = searchParams.get("session");
 
   const [result, setResult] = useState<Result | null>(null);
+  const [prdId, setPrdId] = useState<string | null>(null);
 
   // sessionStorage は SSR で no-op のためマウント後に effect で読む。
   // react-hooks/set-state-in-effect の suppress 理由は page.tsx と同じ。
@@ -104,6 +111,8 @@ function ResultInner() {
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setResult(r);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPrdId(loadPrdId(sessionId));
   }, [sessionId, router]);
 
   if (!result) {
@@ -170,7 +179,7 @@ function ResultInner() {
         )}
       </section>
 
-      <MockModalPreview />
+      {prdId && PRD_IDS_WITH_PREVIEW.has(prdId) && <MockModalPreview />}
 
       <div className="flex justify-end">
         <Button variant="secondary" onClick={() => router.push("/")}>

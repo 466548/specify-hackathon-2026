@@ -35,6 +35,9 @@ function getStorage(): Storage | null {
 function keyPrd(sessionId: string): string {
   return `session:${sessionId}:prd`;
 }
+function keyPrdId(sessionId: string): string {
+  return `session:${sessionId}:prdId`;
+}
 function keyResult(sessionId: string): string {
   return `session:${sessionId}:result`;
 }
@@ -70,6 +73,22 @@ export function loadPrd(sessionId: string): string | null {
   const storage = getStorage();
   if (!storage) return null;
   return storage.getItem(keyPrd(sessionId));
+}
+
+// --- PRD ID ---------------------------------------------------------------
+// どの DEMO_PRD が選ばれたかを記録する。/result でプレビュー UI のドメイン
+// 分岐（"user-add" のときだけモーダル mock を出す等）に使う。
+
+export function savePrdId(sessionId: string, prdId: string): void {
+  const storage = getStorage();
+  if (!storage) return;
+  storage.setItem(keyPrdId(sessionId), prdId);
+}
+
+export function loadPrdId(sessionId: string): string | null {
+  const storage = getStorage();
+  if (!storage) return null;
+  return storage.getItem(keyPrdId(sessionId));
 }
 
 /**
