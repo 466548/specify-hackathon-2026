@@ -24,10 +24,19 @@ import { Button } from "@/components/ui/Button";
 import { loadPrdId, loadResult } from "@/lib/session-storage";
 import type { Contradiction, Decision, Priority, Result } from "@/lib/types";
 import { MockModalPreview } from "./MockModalPreview";
+import { ShiftAutoPreview } from "./ShiftAutoPreview";
+import { ReportMonthlyPreview } from "./ReportMonthlyPreview";
 
-// MockModalPreview は KintaiKit ユーザー追加モーダルに特化した mock のため、
-// 同じ PRD を選んだ時だけ表示する。
-const PRD_IDS_WITH_PREVIEW = new Set(["user-add"]);
+// PRD ごとの画面プレビュー切替。
+// - user-add は MockModalPreview（5 状態切替の作り込み版、唯一インタラクティブ）
+// - shift-auto / report-monthly は静的な概念図 mock
+// - それ以外は preview 非表示
+function renderPreview(prdId: string | null): React.ReactNode {
+  if (prdId === "user-add") return <MockModalPreview />;
+  if (prdId === "shift-auto") return <ShiftAutoPreview />;
+  if (prdId === "report-monthly") return <ReportMonthlyPreview />;
+  return null;
+}
 
 // 1 つの論点に対するユーザーの決定状態。
 interface DecisionState {
@@ -270,8 +279,8 @@ function ResultInner() {
         </div>
       </Card>
 
-      {/* Step 3: 画面プレビュー（user-add のみ） */}
-      {prdId && PRD_IDS_WITH_PREVIEW.has(prdId) && <MockModalPreview />}
+      {/* Step 3: 画面プレビュー（PRD ごとに mock を切替、対応なしは非表示） */}
+      {renderPreview(prdId)}
 
       {/* エクスポートバー */}
       <div className="bg-bg-secondary rounded-lg px-4 py-3.5 flex items-center justify-between gap-3 mt-2">
