@@ -66,6 +66,9 @@ function AnalyzingInner() {
   const [prdLabel, setPrdLabel] = useState<string>("");
 
   const sseStartedRef = useRef(false);
+  // openAnalyzeStream の戻り値（fetch AbortController.abort をラップした関数）。
+  // 「中止」ボタンや真の unmount 時に呼んで、進行中の SSE 接続を破棄するために保持。
+  const abortFnRef = useRef<(() => void) | null>(null);
 
   // 経過時間カウンタ。retryKey が変わったら 0 から再開する。
   useEffect(() => {
@@ -94,7 +97,7 @@ function AnalyzingInner() {
     }
 
     sseStartedRef.current = true;
-    openAnalyzeStream(prd, {
+    abortFnRef.current = openAnalyzeStream(prd, {
       onProgress: (ev) => {
         setEvents((prev) => [...prev, ev]);
         if (ev.type === "planner_started") {
@@ -121,8 +124,20 @@ function AnalyzingInner() {
     });
   }, [sessionId, router, retryKey]);
 
+  // 「中止」ハンドラ。SSE 接続を abort してから / に戻る。
+  // backend 側のパイプライン自体は止まらない（接続切断のみ）ことに注意。
+  // demo 用途では十分。完全に止めたいなら backend に cancel エンドポイントが必要。
+  function handleCancel() {
+    abortFnRef.current?.();
+    abortFnRef.current = null;
+    router.push("/");
+  }
+
   if (error) {
     const handleRetry = () => {
+      // 既に閉じている場合は no-op だが、念のため前回の fetch を確実に abort してから再開。
+      abortFnRef.current?.();
+      abortFnRef.current = null;
       sseStartedRef.current = false;
       setError(null);
       setEvents([]);
@@ -166,7 +181,7 @@ function AnalyzingInner() {
         </div>
         <button
           type="button"
-          onClick={() => router.push("/")}
+          onClick={handleCancel}
           className="text-xs px-3 py-1.5 bg-card border-[0.5px] border-border-strong rounded-md hover:bg-bg-secondary inline-flex items-center gap-1"
           aria-label="分析を中止"
         >
