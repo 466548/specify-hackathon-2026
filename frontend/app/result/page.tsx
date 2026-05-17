@@ -21,11 +21,57 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { DEMO_PRDS } from "@/lib/demo-prds";
+import {
+  copyMarkdownToClipboard,
+  downloadMarkdown,
+  generateMarkdown,
+} from "@/lib/export";
 import { loadPrdId, loadResult } from "@/lib/session-storage";
 import type { Contradiction, Decision, Priority, Result } from "@/lib/types";
 import { MockModalPreview } from "./MockModalPreview";
 import { ShiftAutoPreview } from "./ShiftAutoPreview";
 import { ReportMonthlyPreview } from "./ReportMonthlyPreview";
+
+// PRD label を組み立てる（エクスポート Markdown ヘッダー用）。
+function buildPrdLabel(prdId: string | null): string {
+  if (!prdId) return "PRD";
+  const def = DEMO_PRDS.find((p) => p.id === prdId);
+  if (!def) return "PRD";
+  return `[${def.category}] ${def.title}`;
+}
+
+// Markdown ダウンロード。result が無ければ no-op。
+function handleExportMarkdown(
+  result: Result | null,
+  decisionStates: Record<number, { selectedOption: string | null; memo: string; decided: boolean }>,
+  prdId: string | null,
+): void {
+  if (!result) return;
+  const md = generateMarkdown(result, decisionStates, buildPrdLabel(prdId));
+  const filename = `${prdId ?? "prd"}-revised.md`;
+  downloadMarkdown(filename, md);
+}
+
+// Notion 連携: 公式 API は使わず「Markdown をクリップボードへコピー → Notion で貼り付け」
+// の運用にする (secret 管理を避けつつ Notion 側のリッチ表示は維持できる)。
+async function handleExportNotion(
+  result: Result | null,
+  decisionStates: Record<number, { selectedOption: string | null; memo: string; decided: boolean }>,
+  prdId: string | null,
+  setNote: (msg: string | null) => void,
+): Promise<void> {
+  if (!result) return;
+  const md = generateMarkdown(result, decisionStates, buildPrdLabel(prdId));
+  const ok = await copyMarkdownToClipboard(md);
+  if (ok) {
+    setNote("✓ Markdown をクリップボードにコピーしました。Notion に貼り付けてください。");
+    setTimeout(() => setNote(null), 5000);
+  } else {
+    setNote("⚠️ クリップボードコピーに失敗しました。Markdown ボタンをご利用ください。");
+    setTimeout(() => setNote(null), 5000);
+  }
+}
 
 // PRD ごとの画面プレビュー切替。
 // - user-add は MockModalPreview（5 状態切替の作り込み版、唯一インタラクティブ）
@@ -84,6 +130,8 @@ function ResultInner() {
     Record<number, DecisionState>
   >({});
   const [filter, setFilter] = useState<FilterValue>("all");
+  // Notion 用「Markdown をクリップボードにコピー」した際の一時メッセージ。
+  const [exportNote, setExportNote] = useState<string | null>(null);
 
   // sessionStorage は SSR で no-op のためマウント後に effect で読む。
   useEffect(() => {
@@ -284,18 +332,24 @@ function ResultInner() {
 
       {/* エクスポートバー */}
       <div className="bg-bg-secondary rounded-lg px-4 py-3.5 flex items-center justify-between gap-3 mt-2">
-        <div>
+        <div className="flex-1">
           <p className="text-[13px] font-medium m-0 mb-0.5">
             決定事項を反映した改訂版 PRD をエクスポート
           </p>
           <p className="text-[11px] text-text-muted m-0">
-            すべての論点を決定すると有効になります
+            {allDecided
+              ? "決定済み / 未決定 / 矛盾 をまとめた Markdown を生成します"
+              : "すべての項目を決定すると有効になります"}
           </p>
+          {exportNote && (
+            <p className="text-[11px] text-success m-0 mt-1">{exportNote}</p>
+          )}
         </div>
         <div className="flex gap-1.5">
           <button
             type="button"
             disabled={!allDecided}
+            onClick={() => handleExportNotion(result, decisionStates, prdId, setExportNote)}
             className="text-xs px-3 py-1.5 bg-card border-[0.5px] border-border-strong rounded-md disabled:opacity-50 hover:bg-bg-secondary"
           >
             Notion
@@ -303,6 +357,7 @@ function ResultInner() {
           <button
             type="button"
             disabled={!allDecided}
+            onClick={() => handleExportMarkdown(result, decisionStates, prdId)}
             className="text-xs px-3 py-1.5 bg-card border-[0.5px] border-border-strong rounded-md disabled:opacity-50 hover:bg-bg-secondary"
           >
             Markdown
