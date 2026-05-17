@@ -1,0 +1,12 @@
+# ビルドコンテキストから除外（イメージ肥大 / キャッシュ汚染 / 秘密漏洩を防ぐ）
+.env
+.env.*
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.uv/
+*.egg-info/
+.DS_Store

@@ -1,0 +1,53 @@
+# プロジェクトルートの .dockerignore。docker-compose.yml が `context: .` を使うため、
+# サブディレクトリの .dockerignore は無視される。両サービスのビルドコンテキストを
+# 共通でここで絞る。
+#
+# 個別の backend/.dockerignore, frontend/.dockerignore は `docker build` で
+# サブディレクトリ単独を context に指定した場合の保険として残してある。
+
+# --- env / secrets ---
+.env
+.env.*
+**/.env
+**/.env.*
+
+# --- VCS / editor ---
+.git/
+.gitignore
+.vscode/
+.idea/
+*.swp
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Node / Next.js ---
+**/node_modules/
+**/.next/
+**/out/
+**/*.tsbuildinfo
+
+# --- Python ---
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/.venv/
+**/venv/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.uv/
+
+# --- logs / build artifacts ---
+*.log
+**/dist/
+**/build/
+**/coverage/
+
+# --- private working channel ---
+答え.md
+
+# --- docs (不要なものはコンテナに入れない) ---
+docs/
+demo-data/

@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from .errors import classify_exception
 from .orchestrator import ProgressEvent, run_pipeline, run_pipeline_streaming
 
 # PRD の最大サイズ（バイト）。とりあえず 500KB。ハッカソンデモなら十分。
@@ -135,10 +136,18 @@ async def _event_generator(prd_text: str) -> AsyncIterator[dict[str, str]]:
             yield _to_sse_message(ev)
     except Exception as e:
         # run_pipeline_streaming が予期せぬ例外を漏らした場合の最後の砦。
+        # classify_exception で UI 分岐用の error_type / retryable を付ける。
+        classified = classify_exception(e)
         yield {
             "event": "error",
             "data": json.dumps(
-                {"message": f"内部エラー: {e}", "data": None},
+                {
+                    "message": classified.message,
+                    "data": {
+                        "error_type": classified.error_type,
+                        "retryable": classified.retryable,
+                    },
+                },
                 ensure_ascii=False,
             ),
         }

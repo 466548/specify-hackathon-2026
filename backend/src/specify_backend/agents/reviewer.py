@@ -17,9 +17,15 @@ from ..schemas import DECISION_SCHEMA
 
 REVIEWER_SYSTEM_PROMPT = """# システム定義
 
-機能: 複数の専門エージェントが出した意思決定論点リストを統合・重複排除・優先度再付与する
+機能: 複数の専門エージェントが出した「決めるべきこと」リストを統合・重複排除・優先度再付与する
 入力: Decision Agent / EdgeCase Agent の生 JSON 出力 + Past PRD Agent の矛盾リスト（参照用）
-出力: 統合後の意思決定論点リスト（schema は単一 Agent のものと同じ）
+出力: 統合後の「決めるべきこと」リスト（schema は単一 Agent のものと同じ）
+
+# 出力スタイル（重要）
+
+summary や rationale を書く際は、「意思決定論点」「論点」という硬い用語は使わず、
+「決めるべきこと」「決まっていない決定事項」「未確定の方針」など、自然な日本語で表現する。
+特に summary は読み手 (PM / プロダクト担当) が結果画面で最初に読む文なので、堅苦しくしない。
 
 # 統合ルール
 
@@ -73,7 +79,7 @@ title は要約であり不正確な場合があるため、必ず past_prd_quot
 
 # 注意
 
-- 出力は決定論点リストのみ（contradictions は出力しない。Past PRD の矛盾は参照専用）
+- 出力は「決めるべきこと」リストのみ（contradictions は出力しない。Past PRD の矛盾は参照専用）
 - 出力は呼び出し側の JSON Schema に厳密に準拠させる（priority/category/options 最低 3 つ）
 
 # 出力言語

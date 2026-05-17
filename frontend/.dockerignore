@@ -1,0 +1,10 @@
+# ビルドコンテキストから除外
+node_modules/
+.next/
+out/
+.env
+.env.*
+*.log
+.DS_Store
+.vscode/
+.idea/

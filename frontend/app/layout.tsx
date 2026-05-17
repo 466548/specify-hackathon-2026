@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Specify - PRD で決めるべきことを炙り出す",
+  title: "Specify - PRD レビュー Agent",
   description:
-    "PRD（製品要件書）を投げると、まだ決まっていないポイントと過去 PRD との矛盾を Agent が並列で洗い出すデモアプリ",
+    "PRD の「決まっていない意思決定」を 3 つの専門 Agent が並列で洗い出し、その場で決定できます。",
 };
 
 export default function RootLayout({

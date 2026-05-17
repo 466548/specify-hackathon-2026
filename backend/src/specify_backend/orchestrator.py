@@ -23,6 +23,7 @@ from .agents.edge_case import build_edge_case_agent
 from .agents.past_prd import build_past_prd_agent
 from .agents.planner import build_planner
 from .agents.reviewer import build_reviewer_agent, make_reviewer_aggregator
+from .errors import classify_exception
 from .notion import fetch_past_prds
 from .schemas import PLAN_SCHEMA
 
@@ -104,6 +105,7 @@ async def run_pipeline_streaming(prd_text: str) -> AsyncIterator[ProgressEvent]:
         - 既存の stderr print は維持する（CLI 体験を変えないため）。
     """
     # API キー未設定はエラーとして 1 イベント吐いて終了。
+    # error_type=auth で retryable=False（設定修正が必要）。
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         yield ProgressEvent(
@@ -112,6 +114,7 @@ async def run_pipeline_streaming(prd_text: str) -> AsyncIterator[ProgressEvent]:
                 "OPENAI_API_KEY が設定されていません。"
                 "リポジトリルートの .env に OPENAI_API_KEY=... を設定してください。"
             ),
+            data={"error_type": "auth", "retryable": False},
         )
         return
 
@@ -154,7 +157,10 @@ async def run_pipeline_streaming(prd_text: str) -> AsyncIterator[ProgressEvent]:
         type="notion_fetch_started",
         message="Notion: 過去 PRD を取得中",
     )
-    past_prds, notion_failure = fetch_past_prds()
+    # Past PRD は KintaiKit のコア方針（監査ログ・個人情報・承認フロー等）として
+    # 共通使用。Demo PRD は 3 機能とも KintaiKit のため domain="kintaikit" 固定。
+    # 将来 EC / Medical に拡張する際は引数化する。
+    past_prds, notion_failure = fetch_past_prds(domain="kintaikit")
     extra_failed: list[str] = (
         [f"past_prd_agent ({notion_failure})"] if notion_failure else []
     )
@@ -228,15 +234,30 @@ async def run_pipeline_streaming(prd_text: str) -> AsyncIterator[ProgressEvent]:
                 output_data = event.data
             # その他（started / status / superstep_*）は転送しない。
     except Exception as e:
-        # ワークフロー実行中の例外もベストエフォートで握って error イベントへ。
-        print(f"⚠️  Workflow 実行中に例外: {e}", file=sys.stderr)
-        yield ProgressEvent(type="error", message=str(e))
+        # ワークフロー実行中の例外はベストエフォートで握って error イベントへ。
+        # classify_exception で error_type / retryable を判定し、フロントの UI 分岐に渡す。
+        classified = classify_exception(e)
+        print(
+            f"⚠️  Workflow 実行中に例外: {e} → {classified.error_type}",
+            file=sys.stderr,
+        )
+        yield ProgressEvent(
+            type="error",
+            message=classified.message,
+            data={
+                "error_type": classified.error_type,
+                "retryable": classified.retryable,
+            },
+        )
         return
 
     if output_data is None:
+        # ワークフローが output を返さなかった（例外は出てないが結果が無い）。
+        # 原因不明なので unknown 扱い（retryable=True で再試行を許す）。
         yield ProgressEvent(
             type="error",
-            message="ワークフローから出力が得られませんでした。",
+            message="ワークフローから出力が得られませんでした。再試行してみてください。",
+            data={"error_type": "unknown", "retryable": True},
         )
         return
 

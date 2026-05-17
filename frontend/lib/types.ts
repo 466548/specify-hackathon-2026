@@ -95,3 +95,27 @@ export interface ProgressEvent {
   /** type 別の付随情報。executor_id / failed reason / Planner の focus_areas など。 */
   data?: unknown;
 }
+
+// ---------------------------------------------------------------------------
+// エラー分類（backend/src/specify_backend/errors.py と語彙を揃える）
+// ---------------------------------------------------------------------------
+
+/**
+ * エラー種別。フロントの /analyzing がこの値で UI 分岐する:
+ *   - リトライ可能 (retryable=true): rate_limit / timeout / unknown
+ *     → 「再試行」「最初に戻る」の 2 ボタン
+ *   - リトライ不能 (retryable=false): auth / credit_exhausted
+ *     → 「最初に戻る」のみ
+ */
+export type ErrorType =
+  | "rate_limit"
+  | "timeout"
+  | "auth"
+  | "credit_exhausted"
+  | "unknown";
+
+/** SSE の error イベントで来る data 部の構造。 */
+export interface ErrorPayload {
+  error_type: ErrorType;
+  retryable: boolean;
+}

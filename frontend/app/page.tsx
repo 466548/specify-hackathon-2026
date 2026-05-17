@@ -3,51 +3,69 @@
 /**
  * 入力画面（/）。
  *
- * - PRD テキストを Textarea に入力
- * - 「分析開始」で sessionStorage に保存 → /analyzing?session=<id> へ
- * - 直前に入力した PRD があれば自動復元（ブラウザバック対応）
+ * Week 6 デザイン磨き (5/18) でドロップダウン + プレビュー領域形式に変更。
+ * 自由入力廃止の方針はそのまま（DEMO_PRDS 3 件から選ぶ）。
+ *
+ * モック: Downloads/01_specify_select.html を参考に、
+ *   - ヘッダ: "PRD レビュー Agent" + Specify バッジ
+ *   - Step 1 カード: select で PRD を選び、下の preview 領域に概要 / サイズ /
+ *     推定時間 / 想定論点数を展開
+ *   - 「分析を開始」ボタンで /analyzing へ
  */
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Textarea } from "@/components/ui/Textarea";
+import { DEMO_PRDS, type DemoPrd } from "@/lib/demo-prds";
 import {
   SessionStorageQuotaError,
-  loadLastPrd,
   savePrd,
+  savePrdId,
 } from "@/lib/session-storage";
+
+/** PRD ごとの「サイズ / 推定時間 / 想定論点数」表示用メタ。モックの数値を参考に。 */
+const PRD_META: Record<string, { size: string; eta: string; issues: string }> = {
+  "user-add": {
+    size: "2.4 KB / 約 420 字",
+    eta: "推定 30 秒",
+    issues: "10〜15 件",
+  },
+  "shift-auto": {
+    size: "3.1 KB / 約 580 字",
+    eta: "推定 35 秒",
+    issues: "12〜18 件",
+  },
+  "report-monthly": {
+    size: "1.8 KB / 約 320 字",
+    eta: "推定 25 秒",
+    issues: "8〜12 件",
+  },
+};
 
 export default function Home() {
   const router = useRouter();
-  const [prd, setPrd] = useState<string>("");
+  const [selectedId, setSelectedId] = useState<string>(DEMO_PRDS[0].id);
   const [error, setError] = useState<string | null>(null);
 
-  // 起動時に直前の PRD を復元（/result → ブラウザバックで戻った時の利便性）。
-  // 確認ダイアログは出さず、そっとプリフィルする。
-  //
-  // React 19 の react-hooks/set-state-in-effect が effect 内の setState を警告するが、
-  // sessionStorage は SSR で no-op、クライアントマウント後にだけ値を読みたい、
-  // useState の lazy 初期化では SSR/CSR で値が食い違って hydration mismatch するため、
-  // effect で 1 回だけセットするのが最も安全。ここは意図的に suppress する。
-  useEffect(() => {
-    const last = loadLastPrd();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (last) setPrd(last);
-  }, []);
+  const selected: DemoPrd = useMemo(
+    () =>
+      DEMO_PRDS.find((p) => p.id === selectedId) ?? DEMO_PRDS[0],
+    [selectedId],
+  );
+  const meta = PRD_META[selected.id];
 
   function handleAnalyze() {
-    const text = prd.trim();
-    if (!text) {
-      setError("PRD を入力してください");
-      return;
-    }
-    // crypto.randomUUID() は Web 標準（ブラウザネイティブ）。Node 環境では SSR でも動くが
-    // この関数は onClick から呼ばれるため必ずクライアント側で実行される。
-    const sessionId = crypto.randomUUID();
+    let sessionId: string;
     try {
-      savePrd(sessionId, text);
+      sessionId = crypto.randomUUID();
+    } catch {
+      sessionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+    try {
+      savePrd(sessionId, selected.prdText);
+      savePrdId(sessionId, selected.id);
     } catch (e) {
       if (e instanceof SessionStorageQuotaError) {
         setError(e.message);
@@ -59,24 +77,140 @@ export default function Home() {
   }
 
   return (
-    <main className="flex-1 w-full max-w-3xl mx-auto px-6 py-12 flex flex-col gap-6">
+    <main className="flex-1 w-full max-w-2xl mx-auto px-6 py-8 flex flex-col gap-6">
+      {/* ヘッダ: PRDレビュー Agent + Specify バッジ */}
       <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Specify</h1>
-        <p className="text-sm text-text-muted">
-          PRD から「決まっていない意思決定」を Agent が並列で洗い出します。
+        <div className="flex items-center gap-2">
+          <h1 className="text-[22px] font-medium tracking-tight m-0">
+            PRD レビュー Agent
+          </h1>
+          <span className="text-xs px-2.5 py-[3px] rounded-md bg-bg-info text-text-info">
+            Specify
+          </span>
+        </div>
+        <p className="text-sm text-text-muted m-0">
+          PRD の「決まっていない意思決定」を 3 つの専門 Agent が並列で洗い出し、その場で決定できます。
         </p>
       </header>
 
-      <Textarea
-        label="PRD（製品要件書）"
-        value={prd}
-        onChange={(v) => {
-          setPrd(v);
-          if (error) setError(null);
-        }}
-        placeholder="ここに PRD をペーストしてください..."
-        rows={16}
-      />
+      {/* Step 1: PRD Selector */}
+      <Card className="border-0.5">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-[22px] h-[22px] rounded-full bg-bg-info text-text-info flex items-center justify-center text-xs font-medium">
+            1
+          </div>
+          <span className="text-sm font-medium">分析する PRD を選ぶ</span>
+        </div>
+
+        <div className="flex gap-2 items-center mb-3">
+          <select
+            value={selectedId}
+            onChange={(e) => setSelectedId(e.target.value)}
+            aria-label="分析する PRD を選択"
+            className="flex-1 h-9 px-3 text-sm bg-card border-[0.5px] border-border-strong rounded-md cursor-pointer hover:border-text-muted"
+          >
+            {DEMO_PRDS.map((prd) => (
+              <option key={prd.id} value={prd.id}>
+                [{prd.category}] {prd.title}
+              </option>
+            ))}
+          </select>
+          <Button onClick={handleAnalyze}>
+            分析を開始
+            <svg
+              className="ml-1.5 inline-block"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </Button>
+        </div>
+
+        {/* PRD Preview */}
+        <div className="bg-bg-secondary rounded-md px-4 py-3.5">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[11px] px-2 py-0.5 rounded-md bg-card border-[0.5px] border-border text-text-muted">
+              {selected.category}
+            </span>
+            <span className="text-sm font-medium">{selected.title}</span>
+          </div>
+          <p className="text-[13px] text-text-muted m-0 mb-2.5 leading-relaxed">
+            {selected.description}
+          </p>
+          <div className="flex gap-4 text-xs text-text-tertiary flex-wrap">
+            <MetaItem
+              icon={
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+              }
+            >
+              {meta.size}
+            </MetaItem>
+            <MetaItem
+              icon={
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+              }
+            >
+              {meta.eta}
+            </MetaItem>
+            <MetaItem
+              icon={
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <circle cx="12" cy="12" r="6" />
+                  <circle cx="12" cy="12" r="2" />
+                </svg>
+              }
+            >
+              想定論点 {meta.issues}
+            </MetaItem>
+          </div>
+        </div>
+      </Card>
 
       {error && (
         <div
@@ -86,12 +220,21 @@ export default function Home() {
           {error}
         </div>
       )}
-
-      <div className="flex justify-end">
-        <Button onClick={handleAnalyze} disabled={!prd.trim()}>
-          分析開始
-        </Button>
-      </div>
     </main>
+  );
+}
+
+function MetaItem({
+  icon,
+  children,
+}: {
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      {icon}
+      <span>{children}</span>
+    </span>
   );
 }

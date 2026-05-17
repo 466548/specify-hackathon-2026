@@ -146,8 +146,13 @@ def _fetch_page_body(client: Client, page_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def fetch_past_prds() -> tuple[list[PastPRD], str | None]:
+def fetch_past_prds(domain: str | None = None) -> tuple[list[PastPRD], str | None]:
     """Notion から過去 PRD 一覧を取得する。
+
+    Args:
+        domain: 取得したい Past PRD のドメイン（例: "kintaikit"）。指定時は Notion DB の
+            `domain` Select プロパティで一致するページのみを返す。None なら無フィルタ。
+            将来 EC / Medical 等に拡張する際の窓口として残してある。
 
     Returns:
         (past_prds, failure_code)
@@ -190,9 +195,18 @@ def fetch_past_prds() -> tuple[list[PastPRD], str | None]:
             return [], "notion_fetch_failed"
         data_source_id = data_sources[0]["id"]
         # page_size 上限 100、デモ規模では十分。
-        result = client.data_sources.query(
-            data_source_id=data_source_id, page_size=100
-        )
+        # domain 指定時は Notion DB の `domain` Select プロパティで一致のみを返す。
+        # filter を省くと無条件取得（互換: 既存呼び出しで domain=None を想定）。
+        query_kwargs: dict = {
+            "data_source_id": data_source_id,
+            "page_size": 100,
+        }
+        if domain:
+            query_kwargs["filter"] = {
+                "property": "domain",
+                "select": {"equals": domain},
+            }
+        result = client.data_sources.query(**query_kwargs)
     except (APIResponseError, HTTPResponseError, RequestTimeoutError) as e:
         # 認可エラー / 通信エラー / タイムアウト等の Notion SDK 既知例外。
         print(f"⚠️  Notion API 呼び出しに失敗: {e}", file=sys.stderr)
@@ -226,7 +240,8 @@ def fetch_past_prds() -> tuple[list[PastPRD], str | None]:
         )
 
     print(
-        f"📚 Notion から過去 PRD を {len(past_prds)} 件取得",
+        f"📚 Notion から過去 PRD を {len(past_prds)} 件取得"
+        + (f"（domain={domain}）" if domain else "（無フィルタ）"),
         file=sys.stderr,
     )
     return past_prds, None
