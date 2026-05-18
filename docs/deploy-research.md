@@ -145,3 +145,50 @@
 
 - **SWA の Next.js hybrid サポートは 2024 年に GA 予定だったが、2026/01 更新の公式ドキュメントでも依然 "in preview"**。Next.js 16 への明示的言及はなく、Next.js 13〜14 想定のドキュメントのまま → ハッカソン用途で SWA hybrid は賭けすぎる。採用しない。
 - **Functions Flex Consumption の HTTP streaming は Python では 2024 年時点で「out-of-process worker は streaming 非対応」が支配的見解**。2026 年もこの状況の改善を示す一次ソースなし → 採用しない。
+
+---
+
+## 実環境の値（5/18 開設、5/19 デプロイ作業用）
+
+ハッカソン提出 (6/1) までの本番環境として作成済みのリソース一覧。
+明日 backend / frontend をデプロイする際の参照用。
+
+### 基本情報
+
+| 項目 | 値 |
+|---|---|
+| Subscription ID | `0ed3fc25-8127-4d69-839d-3b5a467704b3` |
+| Subscription 名 | Azure subscription 1（Free Trial / $200 クレジット、30 日有効） |
+| Resource Group | `rg-specify-prod` |
+| リージョン | `japaneast`（Japan East） |
+| 作成日 | 2026-05-18 |
+
+### 作成済みリソース
+
+| リソース種別 | 名前 | 補足 |
+|---|---|---|
+| Resource Group | `rg-specify-prod` | 全リソースをここに集約 |
+| Azure Container Registry (Basic) | `specifyacrtaz` | FQDN: `specifyacrtaz.azurecr.io` |
+| Container Apps Environment | `cae-specify` | Consumption only、scale-to-zero 可 |
+| Log Analytics Workspace | `workspace-rgspecifyprodvTqt` | Container Apps Env 作成時に自動生成 |
+
+### Container Apps Environment 詳細
+
+- **Default Domain (wildcard)**: `happyfield-8905f02b.japaneast.azurecontainerapps.io`
+  - backend Container App デプロイ後の URL は `<container-app名>.happyfield-8905f02b.japaneast.azurecontainerapps.io` の形になる
+  - 例: `specify-backend.happyfield-8905f02b.japaneast.azurecontainerapps.io`
+  - これをフロントの `BACKEND_URL` env に設定する
+- **Static IP**: `74.176.139.10`
+- **Workload Profile**: `Consumption`
+- **Public Network Access**: Enabled
+
+### 明日（5/19）のデプロイ TODO
+
+1. ローカルで backend Docker イメージビルド & ACR に push（`az acr build` 推奨）
+2. Container App（backend）を `cae-specify` 環境内に作成、`specifyacrtaz.azurecr.io/specify-backend:latest` を指定
+3. Container App の Secret として `OPENAI_API_KEY` / `NOTION_API_KEY` / `NOTION_PRD_DB_ID` を登録
+4. `curl -N https://specify-backend.happyfield-8905f02b.japaneast.azurecontainerapps.io/api/analyze` で SSE chunk が流れるか確認
+5. ローカルで frontend Docker イメージビルド & ACR push
+6. App Service Plan (B1 Linux) + Web App for Containers (`specify-frontend`) を作成
+7. App Settings に `BACKEND_URL=https://specify-backend.happyfield-8905f02b.japaneast.azurecontainerapps.io` / `WEBSITES_PORT=3000` を設定
+8. ブラウザで Web App URL を開いて end-to-end 動作確認
