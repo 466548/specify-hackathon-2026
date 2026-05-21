@@ -12,10 +12,9 @@ build 時の挙動:
 
 from __future__ import annotations
 
-from agent_framework.openai import OpenAIChatClient
-
 from ..notion import PastPRD
 from ..schemas import CONTRADICTION_SCHEMA
+from ._client import build_chat_client
 
 
 def _past_prds_to_block(past_prds: list[PastPRD]) -> str:
@@ -125,16 +124,12 @@ concerns_to_check_in_past_prds で指摘された観点について矛盾を記�
 すべて日本語で出力する。"""
 
 
-def build_past_prd_agent(
-    past_prds: list[PastPRD],
-    model: str = "gpt-4o-mini",
-):
+def build_past_prd_agent(past_prds: list[PastPRD]):
     """Past PRD Agent を構築して返す。
 
     Args:
         past_prds: Notion から取得した過去 PRD のリスト。空リストでも OK
             （その場合は contradictions: [] を返す軽量プロンプトで構築）。
-        model: モデル名（既定: gpt-4o-mini）。
     """
     if not past_prds:
         # 縮退モード: 過去 PRD なし → 空結果を返す Agent。
@@ -145,7 +140,7 @@ def build_past_prd_agent(
             past_prds_block=_past_prds_to_block(past_prds),
         )
 
-    return OpenAIChatClient(model=model).as_agent(
+    return build_chat_client().as_agent(
         name="PastPRDAgent",
         instructions=instructions,
         default_options={"response_format": CONTRADICTION_SCHEMA},

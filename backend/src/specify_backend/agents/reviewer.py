@@ -11,9 +11,8 @@ import json
 import sys
 from typing import Any, Awaitable, Callable
 
-from agent_framework.openai import OpenAIChatClient
-
 from ..schemas import DECISION_SCHEMA
+from ._client import build_chat_client
 
 REVIEWER_SYSTEM_PROMPT = """# システム定義
 
@@ -87,9 +86,9 @@ title は要約であり不正確な場合があるため、必ず past_prd_quot
 すべて日本語で出力する。"""
 
 
-def build_reviewer_agent(model: str = "gpt-4o-mini"):
+def build_reviewer_agent():
     """Reviewer Agent を構築して返す。"""
-    return OpenAIChatClient(model=model).as_agent(
+    return build_chat_client().as_agent(
         name="ReviewerAgent",
         instructions=REVIEWER_SYSTEM_PROMPT,
         default_options={"response_format": DECISION_SCHEMA},

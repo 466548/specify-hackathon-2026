@@ -6,9 +6,8 @@ PRD を読んで、後段の 3 並列エージェント（Decision / EdgeCase / 
 
 from __future__ import annotations
 
-from agent_framework.openai import OpenAIChatClient
-
 from ..schemas import PLAN_SCHEMA
+from ._client import build_chat_client
 
 PLANNER_SYSTEM_PROMPT = """# システム定義
 
@@ -45,15 +44,14 @@ concerns_to_check_in_past_prds に必ず含めること（過去 PRD で全社�
 すべて日本語で出力する。"""
 
 
-def build_planner(model: str = "gpt-4o-mini"):
+def build_planner():
     """Planner Agent を構築して返す。
 
-    OpenAIChatClient.as_agent() で Agent インスタンスを作る。Hello World レベルなので
-    middleware や ContextProvider などの拡張は付けない。
+    クライアント生成は build_chat_client() に集約（env で OpenAI 公式 / Azure 切替）。
+    default_options に response_format を埋め込んでおくと、ConcurrentBuilder 経由で
+    agent.run(messages) と呼ばれた時にも Structured Outputs が効く。
     """
-    # default_options に response_format を埋め込んでおくと、ConcurrentBuilder 経由で
-    # agent.run(messages) と呼ばれた時にも Structured Outputs が効く。
-    return OpenAIChatClient(model=model).as_agent(
+    return build_chat_client().as_agent(
         name="PlannerAgent",
         instructions=PLANNER_SYSTEM_PROMPT,
         default_options={"response_format": PLAN_SCHEMA},

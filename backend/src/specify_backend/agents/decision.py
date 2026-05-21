@@ -6,9 +6,8 @@ PRD から「UI/UX 系・データ表示系・ドメイン特有」の意思決�
 
 from __future__ import annotations
 
-from agent_framework.openai import OpenAIChatClient
-
 from ..schemas import DECISION_SCHEMA
+from ._client import build_chat_client
 
 DECISION_SYSTEM_PROMPT = """# システム定義
 
@@ -75,9 +74,9 @@ summary や rationale を書く際は、「意思決定論点」「論点」と�
 すべて日本語で出力する。"""
 
 
-def build_decision_agent(model: str = "gpt-4o-mini"):
+def build_decision_agent():
     """Decision Agent を構築して返す。"""
-    return OpenAIChatClient(model=model).as_agent(
+    return build_chat_client().as_agent(
         name="DecisionAgent",
         instructions=DECISION_SYSTEM_PROMPT,
         default_options={"response_format": DECISION_SCHEMA},

@@ -106,13 +106,16 @@ async def run_pipeline_streaming(prd_text: str) -> AsyncIterator[ProgressEvent]:
     """
     # API キー未設定はエラーとして 1 イベント吐いて終了。
     # error_type=auth で retryable=False（設定修正が必要）。
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
+    # dual-support: AZURE_OPENAI_ENDPOINT があれば Azure 経由、なければ OpenAI 公式に fallback。
+    has_azure = bool(os.environ.get("AZURE_OPENAI_ENDPOINT"))
+    has_openai = bool(os.environ.get("OPENAI_API_KEY"))
+    if not (has_azure or has_openai):
         yield ProgressEvent(
             type="error",
             message=(
-                "OPENAI_API_KEY が設定されていません。"
-                "リポジトリルートの .env に OPENAI_API_KEY=... を設定してください。"
+                "Azure OpenAI / OpenAI のどちらの認証情報も設定されていません。"
+                "リポジトリルートの .env に AZURE_OPENAI_ENDPOINT + AZURE_OPENAI_API_KEY + "
+                "AZURE_OPENAI_DEPLOYMENT_NAME を設定するか、OPENAI_API_KEY を設定してください。"
             ),
             data={"error_type": "auth", "retryable": False},
         )
