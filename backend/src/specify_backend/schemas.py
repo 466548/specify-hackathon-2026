@@ -67,8 +67,17 @@ DECISION_SCHEMA: dict[str, Any] = {
                         "minItems": 3,
                     },
                     "rationale": {"type": "string"},
+                    "source": {
+                        "type": "string",
+                        "enum": ["past_prd", "agent"],
+                        "description": (
+                            "decision の由来。past_prd = 過去 PRD との矛盾から派生"
+                            "（Reviewer による格上げ or 新規追加）。"
+                            "agent = Decision/EdgeCase Agent からそのまま流れた通常出力。"
+                        ),
+                    },
                 },
-                "required": ["title", "priority", "category", "options", "rationale"],
+                "required": ["title", "priority", "category", "options", "rationale", "source"],
                 "additionalProperties": False,
             },
         },

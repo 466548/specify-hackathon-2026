@@ -185,7 +185,7 @@ function ResultInner() {
         if (filter === "must" && d.priority !== "must") return false;
         if (filter === "should" && d.priority !== "should") return false;
         if (filter === "undecided" && decisionStates[i]?.decided) return false;
-        if (pastPrdOnly && !isPastPrdDerived(d.rationale)) return false;
+        if (pastPrdOnly && d.source !== "past_prd") return false;
         return true;
       });
   }, [result, filter, pastPrdOnly, decisionStates]);
@@ -493,18 +493,6 @@ function FilterTab({
   );
 }
 
-// rationale から Past PRD 由来の論点かを判定する。
-// Reviewer agent の prompt 規約 (agents/reviewer.py) に依存:
-//   - 格上げ: 末尾に「（Past PRD <id> との矛盾により格上げ）」を追記
-//   - 新規追加: rationale 冒頭が「過去 PRD <id> では「...」と決定されているが、新 PRD では言及がない」
-function isPastPrdDerived(rationale: string): boolean {
-  return (
-    rationale.includes("との矛盾により格上げ") ||
-    rationale.includes("（Past PRD") ||
-    (rationale.startsWith("過去 PRD") && rationale.includes("では言及がない"))
-  );
-}
-
 // ---------------------------------------------------------------------------
 // 論点カード（意思決定 UI）
 // ---------------------------------------------------------------------------
@@ -524,7 +512,7 @@ function DecisionCard({
 }) {
   const { selectedOption, memo, decided } = state;
   const canDecide = selectedOption !== null && !decided;
-  const fromPastPrd = isPastPrdDerived(decision.rationale);
+  const fromPastPrd = decision.source === "past_prd";
 
   return (
     <div

@@ -59,7 +59,8 @@ title は要約であり不正確な場合があるため、必ず past_prd_quot
 1. past_prd_quote の要件と decision の要件が実質的に同じ
 2. 格上げが合理的（関係が薄い decision を無理に格上げしない）
 
-格上げした場合、rationale の末尾に「（Past PRD [past_prd_id] との矛盾により格上げ）」を追記する。
+格上げした場合、rationale の末尾に「（Past PRD [past_prd_id] との矛盾により格上げ）」を追記し、
+**source フィールドを "past_prd" にセットする**。
 
 ## パターン B: 対応する decision が存在しない場合（重要）
 
@@ -75,6 +76,13 @@ title は要約であり不正確な場合があるため、必ず past_prd_quot
   2. 新 PRD のスコープでは対応しない（別チケットに切り出す）
   3. 部分的に適用する（ハイブリッド案・条件付き適用など）
 - rationale: 「過去 PRD [past_prd_id] では「[past_prd_quote]」と決定されているが、新 PRD では言及がない。実装着手前に方針を確認する必要がある。」
+- **source: "past_prd" を必ずセットする**
+
+# source フィールド（必須）
+
+すべての decision に source を必ずセットする:
+- 格上げ（パターン A）または新規追加（パターン B）した decision → source: "past_prd"
+- それ以外（Decision Agent / EdgeCase Agent からそのまま統合した decision） → source: "agent"
 
 # 注意
 
@@ -212,6 +220,21 @@ def make_reviewer_aggregator(
                 failed_agents.append("ReviewerAgent")
         else:
             merged = {"summary": "", "decisions": []}
+
+        # 安全網: LLM が source を間違える / 忘れる可能性に備え、rationale の
+        # マーカー文字列で source を上書きする。prompt 文言（reviewer 側で
+        # 規定）と一致しなくなったら frontend のバッジ/フィルターが silently
+        # 消えるので、変更時は両方同時に直すこと。
+        for d in merged.get("decisions", []) or []:
+            rationale = d.get("rationale", "")
+            if (
+                "との矛盾により格上げ" in rationale
+                or "（Past PRD" in rationale
+                or (rationale.startswith("過去 PRD") and "では言及がない" in rationale)
+            ):
+                d["source"] = "past_prd"
+            elif d.get("source") not in ("past_prd", "agent"):
+                d["source"] = "agent"
 
         return {
             "summary": merged.get("summary", ""),

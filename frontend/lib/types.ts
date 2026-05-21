@@ -34,6 +34,12 @@ export interface Decision {
   /** 決めるべき選択肢。最低 3 つ（schemas.py の minItems: 3）。 */
   options: string[];
   rationale: string;
+  /**
+   * 由来。past_prd = 過去 PRD との矛盾から派生（Reviewer が格上げ or 新規追加）、
+   * agent = 通常の Decision/EdgeCase Agent 出力。
+   * Reviewer 側で必ずセットされる（LLM 忘れの場合も rationale マッチで上書き）。
+   */
+  source: "past_prd" | "agent";
 }
 
 /** 過去 PRD との矛盾 1 件（Past PRD Agent の出力単位）。 */

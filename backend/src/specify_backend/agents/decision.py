@@ -58,6 +58,7 @@ summary や rationale を書く際は、「意思決定論点」「論点」と�
   - error / edge_case は EdgeCase Agent が扱うため、ここでは使わない
 - options: 最低 3 つの具体的な選択肢（候補が 2 案しかない場合も、第 3 案として「該当なし」「保留」のような選択肢を必ず加える）
 - rationale: なぜ決める必要があるか（1〜2 文）
+- source: 必ず "agent" を指定する（このエージェントは Past PRD 矛盾の判定は行わないため）
 
 # 件数・優先度の方針
 
