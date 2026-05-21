@@ -23,12 +23,12 @@ const RANKING = [
 
 export function ReportMonthlyPreview() {
   return (
-    <section className="flex flex-col gap-3">
+    <section className="flex flex-col gap-3 mt-2">
       <h2 className="text-lg font-semibold">画面プレビュー</h2>
 
       <Card className="border-warning/30 bg-warning/5">
         <p className="text-xs text-text m-0">
-          ⚠️ これは「月次レポート」配信イメージです。実画面の動的生成は将来の拡張予定です。
+          💡 これは「月次レポート」決定結果の画面プレビューです。各論点の決定内容に応じて表示が変わります。
         </p>
       </Card>
 

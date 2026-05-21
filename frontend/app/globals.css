@@ -77,6 +77,14 @@ body {
 }
 .specify-pulse { animation: specify-pulse 1.4s ease-in-out infinite; }
 
+/* パイプライン SVG の running コネクタ用 dash flow。
+   stroke-dasharray="3,3" 前提で、1 周期 (= 6) の倍数 -12 ずつ流す。
+   1.6s linear infinite で「ゆっくり流れる」控えめな速度（派手にしない）。 */
+@keyframes specify-dash-flow {
+  to { stroke-dashoffset: -12; }
+}
+.specify-dash-flow { animation: specify-dash-flow 1.6s linear infinite; }
+
 /* <details> の開閉に応じて chevron を回転（閉=右向き / 開=下向き）。
  * details > summary の中の .specify-chevron 要素に rotate を当てる。 */
 .specify-chevron { transition: transform 0.15s ease; }

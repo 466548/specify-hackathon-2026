@@ -151,7 +151,7 @@ function AnalyzingInner() {
       setRetryKey((k) => k + 1);
     };
     return (
-      <main className="flex-1 w-full max-w-2xl mx-auto px-6 py-8 flex flex-col gap-4">
+      <main className="flex-1 w-full max-w-3xl mx-auto px-6 py-8 flex flex-col gap-4">
         <h1 className="text-[22px] font-medium tracking-tight">エラー</h1>
         <ErrorBanner
           errorType={error.errorType}
@@ -165,7 +165,7 @@ function AnalyzingInner() {
   }
 
   return (
-    <main className="flex-1 w-full max-w-2xl mx-auto px-6 py-8 flex flex-col gap-4">
+    <main className="flex-1 w-full max-w-3xl mx-auto px-6 py-8 flex flex-col gap-4">
       {/* ヘッダ: 分析中 + 経過時間 + 中止ボタン */}
       <header className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
@@ -288,6 +288,8 @@ function PipelineSvg({
     fill: "none",
     strokeDasharray:
       agentState === undefined || agentState === "completed" ? undefined : "3,3",
+    // running 中の点線だけ dash-flow アニメを当てる（CSS は globals.css）。
+    className: agentState === "running" ? "specify-dash-flow" : undefined,
   });
 
   // レイアウト定数:
@@ -390,7 +392,7 @@ function PipelineBox({
         x={textX}
         y={y + 18}
         textAnchor={anchor}
-        style={{ fontSize: "12px", fontWeight: 500, fill: style.textFill }}
+        style={{ fontSize: "13px", fontWeight: 500, fill: style.textFill }}
       >
         {name}
       </text>
@@ -398,7 +400,7 @@ function PipelineBox({
         x={textX}
         y={y + 32}
         textAnchor={anchor}
-        style={{ fontSize: "10px", fill: style.subFill }}
+        style={{ fontSize: "11px", fill: style.subFill }}
       >
         {style.label}
       </text>
@@ -460,10 +462,10 @@ function AgentLane({ agent, state }: { agent: AgentDef; state: AgentState }) {
             className={`inline-block w-2 h-2 rounded-full ${dotClass}`}
             aria-hidden="true"
           />
-          <span className="text-xs font-medium">{agent.shortName}</span>
+          <span className="text-[13px] font-medium">{agent.shortName}</span>
         </div>
         <span
-          className={`text-[11px] tabular-nums ${state === "completed" ? "text-success" : "text-text-muted"}`}
+          className={`text-[12px] tabular-nums ${state === "completed" ? "text-success" : "text-text-muted"}`}
         >
           {state === "completed" ? "✓ 完了" : state === "running" ? "実行中" : "待機"}
         </span>
@@ -474,7 +476,7 @@ function AgentLane({ agent, state }: { agent: AgentDef; state: AgentState }) {
           style={{ width: `${progressPct}%` }}
         />
       </div>
-      <div className="text-[11px] text-text-muted leading-relaxed min-h-[64px]">
+      <div className="text-[12px] text-text-muted leading-relaxed min-h-[64px]">
         {state === "idle" && <div className="text-text-tertiary">待機中</div>}
         {state === "running" && (
           <div className="text-text-tertiary inline-flex items-center gap-1">

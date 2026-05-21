@@ -51,12 +51,12 @@ const SLOT_LABEL: Record<Slot, string> = {
 
 export function ShiftAutoPreview() {
   return (
-    <section className="flex flex-col gap-3">
+    <section className="flex flex-col gap-3 mt-2">
       <h2 className="text-lg font-semibold">画面プレビュー</h2>
 
       <Card className="border-warning/30 bg-warning/5">
         <p className="text-xs text-text m-0">
-          ⚠️ これは「シフト自動割当」結果の概念図です。実画面の動的生成は将来の拡張予定です。
+          💡 これは「シフト自動割当」決定結果の画面プレビューです。各論点の決定内容に応じて表示が変わります。
         </p>
       </Card>
 

@@ -77,7 +77,7 @@ export default function Home() {
   }
 
   return (
-    <main className="flex-1 w-full max-w-2xl mx-auto px-6 py-8 flex flex-col gap-6">
+    <main className="flex-1 w-full max-w-3xl mx-auto px-6 py-8 flex flex-col gap-6">
       {/* ヘッダ: PRDレビュー Agent + Specify バッジ */}
       <header className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
@@ -205,6 +205,7 @@ export default function Home() {
                   <circle cx="12" cy="12" r="2" />
                 </svg>
               }
+              title="Specify が抽出する未決定の意思決定論点の想定件数です"
             >
               想定論点 {meta.issues}
             </MetaItem>
@@ -220,6 +221,25 @@ export default function Home() {
           {error}
         </div>
       )}
+
+      {/* セキュリティ表記: enterprise 審査員向けの信頼性アピール。 */}
+      <p className="text-xs text-text-tertiary flex items-center gap-1.5 m-0">
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="4" y="11" width="16" height="10" rx="2" ry="2" />
+          <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+        </svg>
+        分析データはセッション内でのみ保持され、外部に保存されません
+      </p>
     </main>
   );
 }
@@ -227,12 +247,17 @@ export default function Home() {
 function MetaItem({
   icon,
   children,
+  title,
 }: {
   icon: React.ReactNode;
   children: React.ReactNode;
+  title?: string;
 }) {
   return (
-    <span className="inline-flex items-center gap-1">
+    <span
+      className="inline-flex items-center gap-1"
+      title={title}
+    >
       {icon}
       <span>{children}</span>
     </span>

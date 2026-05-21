@@ -130,6 +130,9 @@ function ResultInner() {
     Record<number, DecisionState>
   >({});
   const [filter, setFilter] = useState<FilterValue>("all");
+  // Step 3: ContradictionAlert のボタンで Past PRD 由来の論点のみに絞る追加フィルター。
+  // 既存の filter（必須/推奨/未決定）と AND で組み合わせる。
+  const [pastPrdOnly, setPastPrdOnly] = useState(false);
   // Notion 用「Markdown をクリップボードにコピー」した際の一時メッセージ。
   const [exportNote, setExportNote] = useState<string | null>(null);
 
@@ -179,13 +182,13 @@ function ResultInner() {
     return result.decisions
       .map((d, i) => ({ d, i }))
       .filter(({ d, i }) => {
-        if (filter === "all") return true;
-        if (filter === "must") return d.priority === "must";
-        if (filter === "should") return d.priority === "should";
-        if (filter === "undecided") return !decisionStates[i]?.decided;
+        if (filter === "must" && d.priority !== "must") return false;
+        if (filter === "should" && d.priority !== "should") return false;
+        if (filter === "undecided" && decisionStates[i]?.decided) return false;
+        if (pastPrdOnly && !isPastPrdDerived(d.rationale)) return false;
         return true;
       });
-  }, [result, filter, decisionStates]);
+  }, [result, filter, pastPrdOnly, decisionStates]);
 
   if (!result) return null;
 
@@ -233,17 +236,37 @@ function ResultInner() {
   };
 
   return (
-    <main className="flex-1 w-full max-w-2xl mx-auto px-6 py-8 flex flex-col gap-4">
+    <main className="flex-1 w-full max-w-3xl mx-auto px-6 py-8 flex flex-col gap-4">
       {/* ヘッダ */}
-      <header className="flex flex-col gap-1 mb-2">
+      <header className="flex flex-col gap-1">
         <h1 className="text-[22px] font-medium tracking-tight m-0">分析結果</h1>
         <p className="text-sm text-text-muted m-0">{result.summary}</p>
       </header>
 
+      {/* Step 4: 上部サマリーバー（数字を 1 行に集約）*/}
+      <div className="bg-bg-secondary rounded-md px-4 py-3 mt-2">
+        <p className="text-xs text-text-muted font-medium m-0 mb-1">
+          📊 分析結果サマリー
+        </p>
+        <p className="text-sm text-text m-0 leading-relaxed">
+          意思決定論点 <span className="font-semibold">{total}</span>件
+          {" ("}必須 <span className="font-semibold">{filterCounts.must}</span>
+          {" / "}推奨{" "}
+          <span className="font-semibold">{filterCounts.should}</span>
+          {")"}
+          <span className="text-text-tertiary px-2">•</span>
+          過去 PRD との矛盾{" "}
+          <span className="font-semibold">{result.contradictions.length}</span>件
+          <span className="text-text-tertiary px-2">•</span>
+          決定済み <span className="font-semibold">{decidedCount}</span>/
+          <span className="font-semibold">{total}</span>
+        </p>
+      </div>
+
       <FailedBanner failed={result.meta.failed_agents} />
 
       {/* Step 2: 論点を決定する */}
-      <Card>
+      <Card className="mt-2">
         <div className="flex items-center justify-between mb-3.5">
           <div className="flex items-center gap-2">
             <div className="w-[22px] h-[22px] rounded-full bg-bg-info text-text-info flex items-center justify-center text-xs font-medium">
@@ -267,7 +290,11 @@ function ResultInner() {
         </div>
 
         {/* 矛盾アラート（最上部に格上げ） */}
-        <ContradictionAlert contradictions={result.contradictions} />
+        <ContradictionAlert
+          contradictions={result.contradictions}
+          pastPrdOnly={pastPrdOnly}
+          onTogglePastPrdOnly={() => setPastPrdOnly((v) => !v)}
+        />
 
         {/* フィルタタブ */}
         <div className="flex gap-1.5 mb-3 flex-wrap">
@@ -380,10 +407,13 @@ function ResultInner() {
 
 function ContradictionAlert({
   contradictions,
+  pastPrdOnly,
+  onTogglePastPrdOnly,
 }: {
   contradictions: Contradiction[];
+  pastPrdOnly: boolean;
+  onTogglePastPrdOnly: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   if (contradictions.length === 0) return null;
 
   return (
@@ -410,42 +440,23 @@ function ContradictionAlert({
             過去 PRD との矛盾が {contradictions.length} 件あります
           </p>
           <p className="text-xs text-text-muted m-0">
-            既存方針 PRD と食い違っています。詳細を確認の上、論点の決定に反映してください。
+            既存方針 PRD と食い違っています。下のボタンで該当論点だけを絞り込めます。
           </p>
         </div>
         <button
           type="button"
-          onClick={() => setExpanded((e) => !e)}
-          className="text-xs px-3 py-1 bg-card border-[0.5px] border-border-strong rounded-md hover:bg-bg-secondary flex-shrink-0"
+          onClick={onTogglePastPrdOnly}
+          aria-pressed={pastPrdOnly}
+          className={[
+            "text-xs px-3 py-1 border-[0.5px] rounded-md flex-shrink-0 transition",
+            pastPrdOnly
+              ? "bg-warning/15 border-warning text-warning font-medium"
+              : "bg-card border-border-strong hover:bg-bg-secondary",
+          ].join(" ")}
         >
-          {expanded ? "閉じる" : "詳細"}
+          {pastPrdOnly ? "フィルターを解除" : "過去 PRD 矛盾の論点を表示"}
         </button>
       </div>
-
-      {expanded && (
-        <div className="mt-3 flex flex-col gap-2">
-          {contradictions.map((c, i) => (
-            <div
-              key={i}
-              className="text-xs bg-card border border-border rounded-md p-2.5 flex flex-col gap-1"
-            >
-              <div className="font-medium">{c.title}</div>
-              <div className="font-mono text-text-tertiary break-all">
-                {c.past_prd_id}
-              </div>
-              <div>
-                <span className="text-text-tertiary">過去: </span>
-                {c.past_prd_quote}
-              </div>
-              <div>
-                <span className="text-text-tertiary">新: </span>
-                {c.new_prd_quote}
-              </div>
-              <div className="text-text">{c.rationale}</div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -482,6 +493,18 @@ function FilterTab({
   );
 }
 
+// rationale から Past PRD 由来の論点かを判定する。
+// Reviewer agent の prompt 規約 (agents/reviewer.py) に依存:
+//   - 格上げ: 末尾に「（Past PRD <id> との矛盾により格上げ）」を追記
+//   - 新規追加: rationale 冒頭が「過去 PRD <id> では「...」と決定されているが、新 PRD では言及がない」
+function isPastPrdDerived(rationale: string): boolean {
+  return (
+    rationale.includes("との矛盾により格上げ") ||
+    rationale.includes("（Past PRD") ||
+    (rationale.startsWith("過去 PRD") && rationale.includes("では言及がない"))
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 論点カード（意思決定 UI）
 // ---------------------------------------------------------------------------
@@ -501,20 +524,36 @@ function DecisionCard({
 }) {
   const { selectedOption, memo, decided } = state;
   const canDecide = selectedOption !== null && !decided;
+  const fromPastPrd = isPastPrdDerived(decision.rationale);
 
   return (
     <div
       className={[
         "border-[0.5px] border-border rounded-md p-3.5 bg-card transition",
+        fromPastPrd ? "border-l-[5px] border-l-[#F59E0B]" : "",
         decided ? "bg-bg-secondary opacity-90" : "",
       ].join(" ")}
     >
       {/* タグ行 */}
       <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
         <PriorityBadgeNew priority={decision.priority} />
-        <span className="text-[11px] px-2 py-0.5 rounded-md bg-bg-secondary text-text-muted">
+        <span
+          className="text-[11px] px-2 py-0.5 rounded-md"
+          style={{
+            backgroundColor: (CATEGORY_COLOR[decision.category] ?? CATEGORY_COLOR.other).bg,
+            color: (CATEGORY_COLOR[decision.category] ?? CATEGORY_COLOR.other).fg,
+          }}
+        >
           {categoryLabel(decision.category)}
         </span>
+        {fromPastPrd && (
+          <span
+            className="text-[11px] px-2 py-0.5 rounded-md font-medium"
+            style={{ backgroundColor: "#FEF3C7", color: "#8B5A00" }}
+          >
+            🔗 Past PRD
+          </span>
+        )}
         <span
           className={[
             "ml-auto text-[11px]",
@@ -631,6 +670,18 @@ function categoryLabel(category: string): string {
   };
   return map[category] ?? category;
 }
+
+// 優先度バッジ（必須=赤 / 推奨=黄）と被らない配色。
+// other は既存のグレーをソリッド色で再現してフォールバックに使う。
+const CATEGORY_COLOR: Record<string, { bg: string; fg: string }> = {
+  validation: { bg: "#DBEAFE", fg: "#1E40AF" },
+  empty_state: { bg: "#F3E8FF", fg: "#6B21A8" },
+  loading: { bg: "#CFFAFE", fg: "#155E75" },
+  domain: { bg: "#DCFCE7", fg: "#166534" },
+  error: { bg: "#FED7AA", fg: "#92400E" },
+  edge_case: { bg: "#FFEDD5", fg: "#9A3412" },
+  other: { bg: "#F1F5F9", fg: "#475569" },
+};
 
 // ---------------------------------------------------------------------------
 // FailedBanner（縮退動作中）
