@@ -23,10 +23,20 @@
 
 ```bash
 cd backend
-uv run python -c "from specify_backend.notion import fetch_past_prds; r, f = fetch_past_prds(domain='kintaikit'); print(len(r), f)"
+uv run python -c "import specify_backend.orchestrator; from specify_backend.notion import fetch_past_prds; r, f = fetch_past_prds(domain='kintaikit'); print(len(r), f)"
 ```
 
+`import specify_backend.orchestrator` を入れることで、orchestrator 冒頭の
+`load_dotenv()` 経由で `.env` が読まれる。複数行版だとコピペ時にインデント
+事故が起きやすいので 1 行で。
+
 `<件数> None` が出れば OK。`0 None` だった場合は domain プロパティの値ミスマッチ、`0 notion_fetch_failed` だった場合は API キー or DB ID の設定漏れ。
+
+> 注: `specify_backend.notion` を直 import するだけだと `.env` が読まれず
+> 「NOTION_API_KEY が未設定」と出る。`orchestrator` を先に import すれば
+> ファイル冒頭の `load_dotenv()` で環境変数が揃う。CLI (`uv run specify`) や
+> API (`uv run specify-api`) 起動時は orchestrator が常に import されるため
+> この問題は起きない。
 
 ---
 
