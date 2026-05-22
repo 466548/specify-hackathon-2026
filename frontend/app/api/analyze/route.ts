@@ -15,6 +15,7 @@
 
 // 本番（Week 6 デプロイ）では別ホストの API を指せるよう env で外出し。
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
+const ANALYZE_TOKEN = process.env.SPECIFY_ANALYZE_TOKEN ?? "";
 
 // Next.js 16 のデフォルトでは Route Handler の最適化判定で SSE 応答をバッファ化する
 // 可能性があるため、明示的に dynamic 扱いにしてビルド/ランタイムの両方で streaming を
@@ -24,10 +25,27 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request): Promise<Response> {
   // 受け取った JSON ボディはそのまま forward する（パースはバックエンドに任せる）。
   const body = await request.text();
+  const token = ANALYZE_TOKEN.trim();
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["X-Specify-Token"] = token;
+  }
+  // これらは backend 側で TRUST_PROXY_HEADERS=1 のときだけ信頼される前提。
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    headers["X-Forwarded-For"] = forwardedFor;
+  }
+  const realIp = request.headers.get("x-real-ip");
+  if (realIp) {
+    headers["X-Real-IP"] = realIp;
+  }
 
   const upstream = await fetch(`${BACKEND_URL}/api/analyze`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body,
     // @ts-expect-error: Node 18+ の undici で streaming body を送るのに必要。
     // 型定義に未反映だがランタイムは受け付ける（Web Fetch 仕様の duplex）。

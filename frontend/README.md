@@ -2,6 +2,8 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+If you want `/api/analyze` protected locally, copy `frontend/.env.example` to `frontend/.env.local` and set `SPECIFY_ANALYZE_TOKEN`.
+
 First, run the development server:
 
 ```bash

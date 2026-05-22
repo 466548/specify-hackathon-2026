@@ -18,6 +18,8 @@ dependencies = [
     "agent-framework-orchestrations>=1.0.0b0",
     # OpenAI クライアント（agent-framework-openai が内部で使う）
     "openai",
+    # 既知脆弱性対応: httpx 経由で引かれる idna を安全版以上に固定する。
+    "idna>=3.15",
     # .env 読み込み（Agent Framework は自動で .env を読まないため必須）
     "python-dotenv",
     # Notion API クライアント（Past PRD Agent が KintaiKit の過去 PRD を取得するのに使う）。

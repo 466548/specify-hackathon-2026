@@ -13,10 +13,16 @@ Week 5 で導入。フロント（Next.js）から PRD を POST し、
 
 from __future__ import annotations
 
+import asyncio
+import hmac
 import json
+import logging
+import os
+import time
+from collections import deque
 from typing import Any, AsyncIterator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
@@ -28,6 +34,18 @@ from .orchestrator import ProgressEvent, run_pipeline, run_pipeline_streaming
 # 超過時は 413 Payload Too Large を返す。
 _MAX_PRD_BYTES = 500 * 1024
 
+# 認証 / レート制限
+_ANALYZE_TOKEN_ENV = "SPECIFY_ANALYZE_TOKEN"
+_TRUST_PROXY_HEADERS_ENV = "TRUST_PROXY_HEADERS"
+_RATE_LIMIT_WINDOW_SECONDS = 60.0
+_RATE_LIMIT_MAX_REQUESTS = 6
+
+# NOTE: これは軽量な in-memory 実装。単一プロセスのデモ用途向けで、
+# 複数 worker / 複数インスタンスでは共有されない。
+_request_history: dict[str, deque[float]] = {}
+_request_history_lock = asyncio.Lock()
+_logger = logging.getLogger(__name__)
+
 
 # FastAPI app をモジュールトップで構築。uvicorn から import 文字列
 # `specify_backend.api:app` で参照されるためトップ階層に置く必要がある。
@@ -36,6 +54,8 @@ app = FastAPI(
     description="PRD から未定義の意思決定論点を炙り出すマルチエージェント API",
     version="0.1.0",
 )
+app.state.analyze_token = None
+app.state.trust_proxy_headers = False
 
 # CORS: 開発時のフロント（localhost:3000）からのみ叩けるようにする。
 # 本番デプロイ時（Week 6）にオリジンを追加する。
@@ -67,6 +87,66 @@ def _validate_size(prd_text: str) -> None:
         )
 
 
+def _env_flag(value: str | None) -> bool:
+    """環境変数の真偽値を簡易パースする。"""
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _client_ip(request: Request) -> str:
+    """レート制限のキーに使うクライアント識別子を返す。
+
+    TRUST_PROXY_HEADERS=1 のときだけ X-Forwarded-For / X-Real-IP を信頼する。
+    それ以外は Request.client.host のみを使う。
+    """
+    if getattr(request.app.state, "trust_proxy_headers", False):
+        forwarded_for = request.headers.get("x-forwarded-for", "")
+        if forwarded_for:
+            first_hop = forwarded_for.split(",", 1)[0].strip()
+            if first_hop:
+                return first_hop
+        real_ip = (request.headers.get("x-real-ip") or "").strip()
+        if real_ip:
+            return real_ip
+    client = request.client
+    return client.host if client and client.host else "unknown"
+
+
+async def _authorize_and_rate_limit(request: Request) -> None:
+    """共有トークンと簡易レート制限をチェックする。
+
+    SPECIFY_ANALYZE_TOKEN が設定されている場合は、/api/analyze* の全リクエストで
+    X-Specify-Token の一致を要求する。未設定ならローカル開発互換のため認証はスキップ。
+    その上で、クライアント IP ごとに 60 秒あたり 6 リクエストに制限する。
+    """
+    required_token = (getattr(request.app.state, "analyze_token", None) or "").strip()
+    provided_token = (request.headers.get("x-specify-token") or "").strip()
+    if required_token:
+        if not hmac.compare_digest(provided_token, required_token):
+            raise HTTPException(
+                status_code=401,
+                detail="認証に失敗しました。",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+    now = time.monotonic()
+    key = f"{_client_ip(request)}:{provided_token or 'anonymous'}"
+    async with _request_history_lock:
+        history = _request_history.setdefault(key, deque())
+        cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
+        while history and history[0] < cutoff:
+            history.popleft()
+        if len(history) >= _RATE_LIMIT_MAX_REQUESTS:
+            retry_after = max(1, int(_RATE_LIMIT_WINDOW_SECONDS - (now - history[0])))
+            raise HTTPException(
+                status_code=429,
+                detail="リクエストが集中しています。少し待ってから再試行してください。",
+                headers={"Retry-After": str(retry_after)},
+            )
+        history.append(now)
+
+
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     """疎通用のヘルスチェック。デプロイ時のヘルスチェックにも使う。"""
@@ -74,7 +154,7 @@ async def health() -> dict[str, str]:
 
 
 @app.post("/api/analyze/sync")
-async def analyze_sync(req: AnalyzeRequest) -> dict[str, Any]:
+async def analyze_sync(req: AnalyzeRequest, request: Request) -> dict[str, Any]:
     """PRD を解析して結果を JSON 一括返却する。
 
     SSE 不要な疎通確認・テスト・縮退動作の手動チェック用。Week 5 Step 1 で導入。
@@ -87,6 +167,7 @@ async def analyze_sync(req: AnalyzeRequest) -> dict[str, Any]:
     Returns:
         run_pipeline() の戻り値 dict（summary / decisions / contradictions / meta）
     """
+    await _authorize_and_rate_limit(request)
     _validate_size(req.prd_text)
 
     try:
@@ -154,7 +235,7 @@ async def _event_generator(prd_text: str) -> AsyncIterator[dict[str, str]]:
 
 
 @app.post("/api/analyze")
-async def analyze(req: AnalyzeRequest) -> EventSourceResponse:
+async def analyze(req: AnalyzeRequest, request: Request) -> EventSourceResponse:
     """PRD を解析し、進捗を SSE で逐次配信する。
 
     送信される event は以下:
@@ -168,6 +249,7 @@ async def analyze(req: AnalyzeRequest) -> EventSourceResponse:
     ping=15 で 15 秒ごとに heartbeat コメントを送る（プロキシのアイドル切断対策）。
     クライアントが abort（unmount）したら generator は自然に GC される。
     """
+    await _authorize_and_rate_limit(request)
     _validate_size(req.prd_text)
     return EventSourceResponse(_event_generator(req.prd_text), ping=15)
 
@@ -187,3 +269,15 @@ def run() -> None:
         reload=True,
         log_level="info",
     )
+
+
+@app.on_event("startup")
+async def _load_security_config() -> None:
+    """起動時に環境変数を読み込んで、以後の認証チェックで使う。"""
+    app.state.analyze_token = os.environ.get(_ANALYZE_TOKEN_ENV)
+    app.state.trust_proxy_headers = _env_flag(os.environ.get(_TRUST_PROXY_HEADERS_ENV))
+    if not app.state.analyze_token:
+        _logger.warning(
+            "%s が未設定のため /api/analyze* の認証は無効です。",
+            _ANALYZE_TOKEN_ENV,
+        )
