@@ -31,3 +31,5 @@ uv sync
 
 - `SPECIFY_ANALYZE_TOKEN` を設定すると `/api/analyze` 系が `X-Specify-Token` で保護される
 - 同時にクライアント IP 単位の簡易レート制限が有効になる
+- `TRUST_PROXY_HEADERS=1` は、信頼できるリバースプロキシ配下でのみ設定する
+- `TRUST_PROXY_HEADERS` を設定しない場合、`X-Forwarded-For` / `X-Real-IP` はレート制限に使わない

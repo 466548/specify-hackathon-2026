@@ -33,6 +33,7 @@ export async function POST(request: Request): Promise<Response> {
   if (token) {
     headers["X-Specify-Token"] = token;
   }
+  // これらは backend 側で TRUST_PROXY_HEADERS=1 のときだけ信頼される前提。
   const forwardedFor = request.headers.get("x-forwarded-for");
   if (forwardedFor) {
     headers["X-Forwarded-For"] = forwardedFor;

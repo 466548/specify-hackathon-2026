@@ -14,7 +14,10 @@ Week 5 で導入。フロント（Next.js）から PRD を POST し、
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
+import logging
+import os
 import time
 from collections import deque
 from typing import Any, AsyncIterator
@@ -33,6 +36,7 @@ _MAX_PRD_BYTES = 500 * 1024
 
 # 認証 / レート制限
 _ANALYZE_TOKEN_ENV = "SPECIFY_ANALYZE_TOKEN"
+_TRUST_PROXY_HEADERS_ENV = "TRUST_PROXY_HEADERS"
 _RATE_LIMIT_WINDOW_SECONDS = 60.0
 _RATE_LIMIT_MAX_REQUESTS = 6
 
@@ -40,6 +44,7 @@ _RATE_LIMIT_MAX_REQUESTS = 6
 # 複数 worker / 複数インスタンスでは共有されない。
 _request_history: dict[str, deque[float]] = {}
 _request_history_lock = asyncio.Lock()
+_logger = logging.getLogger(__name__)
 
 
 # FastAPI app をモジュールトップで構築。uvicorn から import 文字列
@@ -50,6 +55,7 @@ app = FastAPI(
     version="0.1.0",
 )
 app.state.analyze_token = None
+app.state.trust_proxy_headers = False
 
 # CORS: 開発時のフロント（localhost:3000）からのみ叩けるようにする。
 # 本番デプロイ時（Week 6）にオリジンを追加する。
@@ -81,15 +87,28 @@ def _validate_size(prd_text: str) -> None:
         )
 
 
+def _env_flag(value: str | None) -> bool:
+    """環境変数の真偽値を簡易パースする。"""
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _client_ip(request: Request) -> str:
     """レート制限のキーに使うクライアント識別子を返す。
 
-    まず X-Forwarded-For を見て、なければ Request.client.host を使う。
-    代理配下では完全ではないが、単純な in-memory 制限としては十分。
+    TRUST_PROXY_HEADERS=1 のときだけ X-Forwarded-For / X-Real-IP を信頼する。
+    それ以外は Request.client.host のみを使う。
     """
-    forwarded_for = request.headers.get("x-forwarded-for", "")
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
+    if getattr(request.app.state, "trust_proxy_headers", False):
+        forwarded_for = request.headers.get("x-forwarded-for", "")
+        if forwarded_for:
+            first_hop = forwarded_for.split(",", 1)[0].strip()
+            if first_hop:
+                return first_hop
+        real_ip = (request.headers.get("x-real-ip") or "").strip()
+        if real_ip:
+            return real_ip
     client = request.client
     return client.host if client and client.host else "unknown"
 
@@ -104,7 +123,7 @@ async def _authorize_and_rate_limit(request: Request) -> None:
     required_token = (getattr(request.app.state, "analyze_token", None) or "").strip()
     provided_token = (request.headers.get("x-specify-token") or "").strip()
     if required_token:
-        if not provided_token or provided_token != required_token:
+        if not hmac.compare_digest(provided_token, required_token):
             raise HTTPException(
                 status_code=401,
                 detail="認証に失敗しました。",
@@ -255,6 +274,10 @@ def run() -> None:
 @app.on_event("startup")
 async def _load_security_config() -> None:
     """起動時に環境変数を読み込んで、以後の認証チェックで使う。"""
-    import os
-
     app.state.analyze_token = os.environ.get(_ANALYZE_TOKEN_ENV)
+    app.state.trust_proxy_headers = _env_flag(os.environ.get(_TRUST_PROXY_HEADERS_ENV))
+    if not app.state.analyze_token:
+        _logger.warning(
+            "%s が未設定のため /api/analyze* の認証は無効です。",
+            _ANALYZE_TOKEN_ENV,
+        )
