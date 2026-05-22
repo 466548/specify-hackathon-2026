@@ -3,20 +3,14 @@
 /**
  * 入力画面（/）。
  *
- * Week 6 デザイン磨き (5/18) でドロップダウン + プレビュー領域形式に変更。
- * 自由入力廃止の方針はそのまま（DEMO_PRDS 3 件から選ぶ）。
- *
- * モック: Downloads/01_specify_select.html を参考に、
- *   - ヘッダ: "PRD レビュー Agent" + Specify バッジ
- *   - Step 1 カード: select で PRD を選び、下の preview 領域に概要 / サイズ /
- *     推定時間 / 想定論点数を展開
- *   - 「分析を開始」ボタンで /analyzing へ
+ * ハッカソン提出版でモック準拠の 2 カラムレイアウトに刷新:
+ *   - 左: 見出し + デモ PRD 横並び + 編集可能 textarea + 分析開始ボタン
+ *   - 右: ANALYSIS PIPELINE カード（01〜04 のステップ概要）
  */
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { DEMO_PRDS, type DemoPrd } from "@/lib/demo-prds";
 import {
@@ -25,24 +19,20 @@ import {
   savePrdId,
 } from "@/lib/session-storage";
 
-/** PRD ごとの「サイズ / 推定時間 / 想定論点数」表示用メタ。モックの数値を参考に。 */
-const PRD_META: Record<string, { size: string; eta: string; issues: string }> = {
-  "user-add": {
-    size: "2.4 KB / 約 420 字",
-    eta: "推定 30 秒",
-    issues: "10〜15 件",
-  },
-  "shift-auto": {
-    size: "3.1 KB / 約 580 字",
-    eta: "推定 35 秒",
-    issues: "12〜18 件",
-  },
-  "report-monthly": {
-    size: "1.8 KB / 約 320 字",
-    eta: "推定 25 秒",
-    issues: "8〜12 件",
-  },
+/** PRD ごとの token 数（モック準拠、UI 表示用の固定値）。 */
+const PRD_TOKENS: Record<string, number> = {
+  "user-add": 1247,
+  "shift-auto": 983,
+  "report-monthly": 712,
 };
+
+/** ANALYSIS PIPELINE の 4 ステップ説明（右カラム用）。 */
+const PIPELINE_STEPS: { num: string; title: string; desc: string }[] = [
+  { num: "01", title: "PRD を入力", desc: "テキスト貼り付けまたはデモ PRD" },
+  { num: "02", title: "Agent が並列分析", desc: "Planner → 3 Agents → Reviewer" },
+  { num: "03", title: "論点を確認・決定", desc: "優先度順に選択肢を選ぶ" },
+  { num: "04", title: "Markdown でエクスポート", desc: "Notion / ドキュメントへ反映" },
+];
 
 export default function Home() {
   const router = useRouter();
@@ -50,11 +40,9 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
 
   const selected: DemoPrd = useMemo(
-    () =>
-      DEMO_PRDS.find((p) => p.id === selectedId) ?? DEMO_PRDS[0],
+    () => DEMO_PRDS.find((p) => p.id === selectedId) ?? DEMO_PRDS[0],
     [selectedId],
   );
-  const meta = PRD_META[selected.id];
 
   function handleAnalyze() {
     let sessionId: string;
@@ -77,189 +65,114 @@ export default function Home() {
   }
 
   return (
-    <main className="flex-1 w-full max-w-3xl mx-auto px-6 py-8 flex flex-col gap-6">
-      {/* ヘッダ: PRDレビュー Agent + Specify バッジ */}
-      <header className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <h1 className="text-[22px] font-medium tracking-tight m-0">
-            PRD レビュー Agent
+    <main className="flex-1 w-full max-w-5xl mx-auto px-6 py-10 flex flex-col gap-8">
+      {/* 上段: 2 カラム（左 = 見出し / 右 = ANALYSIS PIPELINE） */}
+      <section className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-8 items-start">
+        <div className="flex flex-col gap-3">
+          <h1 className="text-[34px] leading-tight font-semibold tracking-tight m-0">
+            PRD の「決まっていないこと」を、
+            <br />
+            Agent が洗い出す。
           </h1>
-          <span className="text-xs px-2.5 py-[3px] rounded-md bg-bg-info text-text-info">
-            Specify
-          </span>
-        </div>
-        <p className="text-sm text-text-muted m-0">
-          PRD の「決まっていない意思決定」を 3 つの専門 Agent が並列で洗い出し、その場で決定できます。
-        </p>
-      </header>
-
-      {/* Step 1: PRD Selector */}
-      <Card className="border-0.5">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-[22px] h-[22px] rounded-full bg-bg-info text-text-info flex items-center justify-center text-xs font-medium">
-            1
-          </div>
-          <span className="text-sm font-medium">分析する PRD を選ぶ</span>
-        </div>
-
-        <div className="flex gap-2 items-center mb-3">
-          <select
-            value={selectedId}
-            onChange={(e) => setSelectedId(e.target.value)}
-            aria-label="分析する PRD を選択"
-            className="flex-1 h-9 px-3 text-sm bg-card border-[0.5px] border-border-strong rounded-md cursor-pointer hover:border-text-muted"
-          >
-            {DEMO_PRDS.map((prd) => (
-              <option key={prd.id} value={prd.id}>
-                [{prd.category}] {prd.title}
-              </option>
-            ))}
-          </select>
-          <Button onClick={handleAnalyze}>
-            分析を開始
-            <svg
-              className="ml-1.5 inline-block"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <line x1="5" y1="12" x2="19" y2="12" />
-              <polyline points="12 5 19 12 12 19" />
-            </svg>
-          </Button>
-        </div>
-
-        {/* PRD Preview */}
-        <div className="bg-bg-secondary rounded-md px-4 py-3.5">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-[11px] px-2 py-0.5 rounded-md bg-card border-[0.5px] border-border text-text-muted">
-              {selected.category}
-            </span>
-            <span className="text-sm font-medium">{selected.title}</span>
-          </div>
-          <p className="text-[13px] text-text-muted m-0 mb-2.5 leading-relaxed">
-            {selected.description}
+          <p className="text-sm text-text-muted m-0 leading-relaxed max-w-lg">
+            Specify は、仕様書レビュー前に未決定の論点・エッジケース・過去 PRD との矛盾を抽出するマルチエージェント分析ツールです。
           </p>
-          <div className="flex gap-4 text-xs text-text-tertiary flex-wrap">
-            <MetaItem
-              icon={
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-              }
-            >
-              {meta.size}
-            </MetaItem>
-            <MetaItem
-              icon={
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <polyline points="12 6 12 12 16 14" />
-                </svg>
-              }
-            >
-              {meta.eta}
-            </MetaItem>
-            <MetaItem
-              icon={
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <circle cx="12" cy="12" r="6" />
-                  <circle cx="12" cy="12" r="2" />
-                </svg>
-              }
-              title="Specify が抽出する未決定の意思決定論点の想定件数です"
-            >
-              想定論点 {meta.issues}
-            </MetaItem>
-          </div>
         </div>
-      </Card>
+
+        <aside className="bg-card border-[0.5px] border-border rounded-lg px-5 py-4 w-full lg:w-[340px] shadow-sm">
+          <p className="text-[11px] font-medium tracking-[0.18em] text-text-tertiary m-0 mb-3">
+            ANALYSIS PIPELINE
+          </p>
+          <ol className="flex flex-col gap-3 m-0 p-0 list-none">
+            {PIPELINE_STEPS.map((s) => (
+              <li key={s.num} className="flex items-start gap-3">
+                <span className="text-[11px] font-mono tabular-nums text-text bg-[#dbe3e3] px-1.5 py-0.5 rounded mt-0.5">
+                  {s.num}
+                </span>
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-[13px] font-medium leading-snug">
+                    {s.title}
+                  </span>
+                  <span className="text-xs text-text-muted leading-snug">
+                    {s.desc}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </aside>
+      </section>
+
+      {/* デモ PRD 横並びカード */}
+      <section className="flex flex-col gap-3">
+        <p className="text-xs font-medium text-text-muted m-0">デモ PRD から選択</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {DEMO_PRDS.map((prd) => {
+            const active = prd.id === selectedId;
+            return (
+              <button
+                key={prd.id}
+                type="button"
+                onClick={() => setSelectedId(prd.id)}
+                className={[
+                  "text-left bg-card border rounded-lg px-4 py-3.5 transition relative",
+                  active
+                    ? "border-success border-[2.5px] bg-success/5"
+                    : "border-border border-[0.5px] hover:border-border-strong",
+                ].join(" ")}
+              >
+                {active && (
+                  <span className="absolute top-3 right-3 text-success" aria-hidden="true">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </span>
+                )}
+                <p className="text-[13px] font-medium m-0 mb-1.5 pr-5">{prd.title}</p>
+                <p className="text-xs text-text-muted m-0 mb-2.5 leading-relaxed">
+                  {prd.description}
+                </p>
+                <p className="text-[11px] font-mono tabular-nums text-text-tertiary m-0">
+                  {PRD_TOKENS[prd.id]?.toLocaleString() ?? "-"} tokens
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* PRD プレビュー（読み取り専用） */}
+      <section className="flex flex-col gap-2">
+        <p className="text-xs font-medium text-text-muted m-0">PRD プレビュー</p>
+        <textarea
+          value={selected.prdText}
+          readOnly
+          aria-label="PRD 本文（読み取り専用）"
+          rows={10}
+          className="w-full text-[13px] font-mono leading-relaxed px-4 py-3 bg-bg-secondary border-[0.5px] border-border rounded-lg resize-y focus:outline-none cursor-default"
+        />
+        <p className="text-[11px] text-text-tertiary m-0">
+          上のカードから選んだ PRD の内容です。分析データはこのセッション内でのみ保持されます。
+        </p>
+      </section>
 
       {error && (
-        <div
-          role="alert"
-          className="text-sm text-error border border-error/30 bg-error/10 rounded-md px-3 py-2"
-        >
+        <div role="alert" className="text-sm text-error border border-error/30 bg-error/10 rounded-md px-3 py-2">
           {error}
         </div>
       )}
 
-      {/* セキュリティ表記: enterprise 審査員向けの信頼性アピール。 */}
-      <p className="text-xs text-text-tertiary flex items-center gap-1.5 m-0">
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <rect x="4" y="11" width="16" height="10" rx="2" ry="2" />
-          <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-        </svg>
-        分析データはセッション内でのみ保持され、外部に保存されません
-      </p>
+      {/* 分析開始 */}
+      <section className="flex items-center gap-4">
+        <Button onClick={handleAnalyze}>
+          分析を開始する
+          <svg className="ml-1.5 inline-block" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <line x1="5" y1="12" x2="19" y2="12" />
+            <polyline points="12 5 19 12 12 19" />
+          </svg>
+        </Button>
+        <span className="text-xs text-text-tertiary">約 10〜20 秒で完了します</span>
+      </section>
     </main>
-  );
-}
-
-function MetaItem({
-  icon,
-  children,
-  title,
-}: {
-  icon: React.ReactNode;
-  children: React.ReactNode;
-  title?: string;
-}) {
-  return (
-    <span
-      className="inline-flex items-center gap-1"
-      title={title}
-    >
-      {icon}
-      <span>{children}</span>
-    </span>
   );
 }

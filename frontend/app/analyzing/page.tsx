@@ -3,12 +3,11 @@
 /**
  * 分析中画面（/analyzing?session=<id>）。
  *
- * Week 6 デザイン磨き (5/18) でモック (Downloads/02_specify_analyzing.html) に合わせて
- * 大幅にレイアウト変更:
- *   - SVG パイプライン可視化（Planner → 並列3 → Reviewer、状態色分け）
- *   - 3 レーン詳細（dot + 進捗バー + 状態テキスト）
- *   - 経過時間カウンタ + 中止ボタン
- *   - 開発者向けログを <details> で折りたたみ
+ * ハッカソン提出版でモック準拠の大型レイアウトに刷新:
+ *   - ヘッダ: 「分析中」+ 経過時間（mono）+ PRD カテゴリバッジ + タイトル + 中止
+ *   - Agent ワークフロー: 大型 SVG。Planner / 3 並列 / Reviewer を縦余裕で配置
+ *   - 3 レーン: 「論点抽出 / エッジケース検出 / 過去 PRD 参照」のセクション見出し
+ *   - 実行ログ: タイムスタンプ + [event_name] + 説明 で整形
  *
  * SSE 受信ロジック（CRLF 正規化 + Strict Mode useRef ガード）は Week 5 から変更なし。
  */
@@ -29,6 +28,7 @@ interface AgentDef {
   id: string;
   shortName: string; // dot / lane で使う短い名前
   fullName: string; // SVG で使うフル名
+  sectionName?: string; // 3 レーンのセクション見出し
 }
 
 const PLANNER: AgentDef = {
@@ -37,15 +37,43 @@ const PLANNER: AgentDef = {
   fullName: "Planner",
 };
 const PARALLEL_AGENTS: AgentDef[] = [
-  { id: "DecisionAgent", shortName: "Decision", fullName: "Decision Agent" },
-  { id: "EdgeCaseAgent", shortName: "EdgeCase", fullName: "EdgeCase Agent" },
-  { id: "PastPRDAgent", shortName: "Past PRD", fullName: "Past PRD Agent" },
+  { id: "DecisionAgent", shortName: "Decision", fullName: "Decision Agent", sectionName: "論点抽出" },
+  { id: "EdgeCaseAgent", shortName: "EdgeCase", fullName: "EdgeCase Agent", sectionName: "エッジケース検出" },
+  { id: "PastPRDAgent", shortName: "Past PRD", fullName: "Past PRD Agent", sectionName: "過去 PRD 参照" },
 ];
 const REVIEWER: AgentDef = {
   id: "reviewer_aggregator",
   shortName: "Reviewer",
   fullName: "Reviewer",
 };
+
+/** "[管理者操作] ユーザー追加..." 形式の prdLabel を category と title に分解する。 */
+function splitPrdLabel(label: string): { category: string; title: string } {
+  const m = label.match(/^\[([^\]]+)\]\s*(.+)$/);
+  if (m) return { category: m[1], title: m[2] };
+  return { category: "", title: label };
+}
+
+/** 各 SSE event を「Agent 名: 説明」形式に整える（実行ログ表示用）。 */
+function eventDescription(ev: ProgressEvent): string {
+  switch (ev.type) {
+    case "planner_started":
+      return "Planner Agent: 分析計画を作成中";
+    case "planner_completed":
+      return ev.message || "Planner 完了";
+    case "notion_fetch_started":
+      return "Notion: 過去 PRD を取得中";
+    case "notion_fetch_completed":
+      return ev.message || "Notion: 取得完了";
+    case "workflow_started":
+      return "並列実行を開始";
+    case "executor_invoked":
+    case "executor_completed":
+      return `${(ev as { executor_id?: string }).executor_id ?? "?"}: ${ev.type}`;
+    default:
+      return ev.message || ev.type;
+  }
+}
 
 function AnalyzingInner() {
   const router = useRouter();
@@ -66,11 +94,8 @@ function AnalyzingInner() {
   const [prdLabel, setPrdLabel] = useState<string>("");
 
   const sseStartedRef = useRef(false);
-  // openAnalyzeStream の戻り値（fetch AbortController.abort をラップした関数）。
-  // 「中止」ボタンや真の unmount 時に呼んで、進行中の SSE 接続を破棄するために保持。
   const abortFnRef = useRef<(() => void) | null>(null);
 
-  // 経過時間カウンタ。retryKey が変わったら 0 から再開する。
   useEffect(() => {
     const timer = setInterval(() => setElapsed((e) => e + 1), 1000);
     return () => clearInterval(timer);
@@ -87,7 +112,6 @@ function AnalyzingInner() {
       router.replace("/");
       return;
     }
-    // 表示用に PRD 名を解決（[カテゴリ] タイトル の形）。
     const pid = loadPrdId(sessionId);
     const def = DEMO_PRDS.find((p) => p.id === pid);
     if (def) {
@@ -123,9 +147,6 @@ function AnalyzingInner() {
     });
   }, [sessionId, router, retryKey]);
 
-  // 「中止」ハンドラ。SSE 接続を abort してから / に戻る。
-  // backend 側のパイプライン自体は止まらない（接続切断のみ）ことに注意。
-  // demo 用途では十分。完全に止めたいなら backend に cancel エンドポイントが必要。
   function handleCancel() {
     abortFnRef.current?.();
     abortFnRef.current = null;
@@ -134,7 +155,6 @@ function AnalyzingInner() {
 
   if (error) {
     const handleRetry = () => {
-      // 既に閉じている場合は no-op だが、念のため前回の fetch を確実に abort してから再開。
       abortFnRef.current?.();
       abortFnRef.current = null;
       sseStartedRef.current = false;
@@ -151,7 +171,7 @@ function AnalyzingInner() {
       setRetryKey((k) => k + 1);
     };
     return (
-      <main className="flex-1 w-full max-w-3xl mx-auto px-6 py-8 flex flex-col gap-4">
+      <main className="flex-1 w-full max-w-5xl mx-auto px-6 py-10 flex flex-col gap-4">
         <h1 className="text-[22px] font-medium tracking-tight">エラー</h1>
         <ErrorBanner
           errorType={error.errorType}
@@ -164,38 +184,35 @@ function AnalyzingInner() {
     );
   }
 
+  const labelParts = splitPrdLabel(prdLabel || "PRD");
+
   return (
-    <main className="flex-1 w-full max-w-3xl mx-auto px-6 py-8 flex flex-col gap-4">
-      {/* ヘッダ: 分析中 + 経過時間 + 中止ボタン */}
-      <header className="flex items-start justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <h1 className="text-[22px] font-medium tracking-tight m-0">分析中</h1>
-            <span className="text-xs text-text-muted font-mono tabular-nums">
+    <main className="flex-1 w-full max-w-5xl mx-auto px-6 py-10 flex flex-col gap-5">
+      {/* ヘッダ */}
+      <header className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-3">
+            <h1 className="text-[28px] font-semibold tracking-tight m-0">分析中</h1>
+            <span className="text-sm text-text-muted font-mono tabular-nums bg-bg-secondary px-2 py-0.5 rounded">
               {formatElapsed(elapsed)}
             </span>
           </div>
-          <p className="text-[13px] text-text-muted m-0">
-            {prdLabel || "PRD"} を分析しています
+          <p className="text-sm text-text-muted m-0 flex items-center gap-2 flex-wrap">
+            {labelParts.category && (
+              <span className="text-[11px] px-2 py-0.5 rounded bg-bg-secondary text-text border border-border">
+                {labelParts.category}
+              </span>
+            )}
+            <span>{labelParts.title} を分析しています</span>
           </p>
         </div>
         <button
           type="button"
           onClick={handleCancel}
-          className="text-xs px-3 py-1.5 bg-card border-[0.5px] border-border-strong rounded-md hover:bg-bg-secondary inline-flex items-center gap-1"
+          className="text-sm px-3.5 py-2 bg-card border-[0.5px] border-border-strong rounded-md hover:bg-bg-secondary inline-flex items-center gap-1.5"
           aria-label="分析を中止"
         >
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <line x1="18" y1="6" x2="6" y2="18" />
             <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
@@ -203,52 +220,39 @@ function AnalyzingInner() {
         </button>
       </header>
 
-      {/* パイプライン SVG */}
-      <div className="bg-card border-[0.5px] border-border rounded-lg px-4 py-5 pb-3">
+      {/* Agent ワークフロー */}
+      <section className="bg-card border-[0.5px] border-border rounded-lg px-6 py-5 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-sm font-medium text-text m-0">Agent ワークフロー</p>
+          <p className="text-xs text-text-tertiary m-0">並列実行 · 3 agents</p>
+        </div>
         <PipelineSvg agentStates={agentStates} />
-      </div>
+      </section>
 
       {/* 3 レーン */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {PARALLEL_AGENTS.map((agent) => (
-          <AgentLane
-            key={agent.id}
-            agent={agent}
-            state={agentStates[agent.id]}
-          />
+          <AgentLane key={agent.id} agent={agent} state={agentStates[agent.id]} />
         ))}
       </div>
 
-      {/* 開発者ログ折りたたみ */}
-      <details className="bg-bg-secondary rounded-md px-3.5 py-2.5 mt-2">
-        <summary className="text-xs text-text-muted cursor-pointer select-none flex items-center gap-1">
-          {/* shape は chevron right。details[open] のとき globals.css の
-              .specify-chevron ルールで 90deg 回転 → 下向きになる。 */}
-          <svg
-            className="specify-chevron"
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <polyline points="9 6 15 12 9 18" />
-          </svg>
-          実行ログを表示{" "}
-          <span className="text-text-tertiary">(開発者向け)</span>{" "}
-          <span className="text-text-tertiary">· {events.length} 件</span>
+      {/* 実行ログ */}
+      <details className="bg-card border-[0.5px] border-border rounded-lg px-5 py-3.5 mt-1">
+        <summary className="text-sm font-medium cursor-pointer select-none flex items-center justify-between">
+          <span className="inline-flex items-center gap-1.5">
+            <svg className="specify-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="9 6 15 12 9 18" />
+            </svg>
+            実行ログを表示
+          </span>
+          <span className="text-xs text-text-tertiary">{events.length} 件</span>
         </summary>
-        <div className="mt-2.5 font-mono text-[11px] leading-relaxed text-text-muted max-h-40 overflow-y-auto">
+        <div className="mt-3 font-mono text-[12px] leading-relaxed text-text-muted max-h-56 overflow-y-auto flex flex-col gap-0.5">
           {events.map((ev, i) => (
-            <div key={i}>
-              <span className="text-text-tertiary">
-                {formatElapsed(Math.floor(i * 0.3))}{" "}
-              </span>
-              [{ev.type}] {ev.message}
+            <div key={i} className="flex gap-2.5">
+              <span className="text-text-tertiary shrink-0">{formatElapsed(Math.floor(i * 0.3))}</span>
+              <span className="text-text-info shrink-0">[{ev.type}]</span>
+              <span className="text-text-muted">{eventDescription(ev)}</span>
             </div>
           ))}
         </div>
@@ -258,7 +262,7 @@ function AnalyzingInner() {
 }
 
 // ---------------------------------------------------------------------------
-// SVG パイプライン
+// SVG パイプライン（大型レイアウト）
 // ---------------------------------------------------------------------------
 
 function PipelineSvg({
@@ -272,87 +276,85 @@ function PipelineSvg({
   const pastPrd = styleFor(agentStates.PastPRDAgent);
   const reviewer = styleFor(agentStates.reviewer_aggregator);
 
-  // コネクタの色: planner と parallel で繋ぐ線は planner が done なら teal、それ以外は gray dashed
   const connColorIn = (parallelState: AgentState) =>
     agentStates.PlannerAgent === "completed" ||
     parallelState === "running" ||
     parallelState === "completed"
       ? "#1D9E75"
       : "#888780";
-  // parallel と reviewer のコネクタ: parallel が完了したものは teal、それ以外は gray dashed
   const connColorOut = (parallelState: AgentState) =>
     parallelState === "completed" ? "#1D9E75" : "#888780";
   const connStyle = (color: string, agentState?: AgentState) => ({
     stroke: color,
-    strokeWidth: 1.5,
+    strokeWidth: 2,
     fill: "none",
     strokeDasharray:
-      agentState === undefined || agentState === "completed" ? undefined : "3,3",
-    // running 中の点線だけ dash-flow アニメを当てる（CSS は globals.css）。
+      agentState === undefined || agentState === "completed" ? undefined : "4,4",
     className: agentState === "running" ? "specify-dash-flow" : undefined,
   });
 
-  // レイアウト定数:
-  //   - 各並列ボックス高さ 40、間に 8px のギャップを入れて重なり / 接触感を解消
-  //   - 並列の中央列 (EdgeCase) の縦中心 = 64 を基準に Planner / Reviewer を縦中央寄せ
-  //   - viewBox 高は 128（並列 3 つ + 上下マージン）
-  const BOX_H = 40;
-  const GAP = 8;
-  const TOP = 4; // 上下に少しだけ余白
-  const Y_TOP = TOP; // 4
-  const Y_MID = TOP + BOX_H + GAP; // 52
-  const Y_BOT = TOP + (BOX_H + GAP) * 2; // 100
-  const C_TOP = Y_TOP + BOX_H / 2; // 24
-  const C_MID = Y_MID + BOX_H / 2; // 72
-  const C_BOT = Y_BOT + BOX_H / 2; // 120
-  const VB_H = Y_BOT + BOX_H + TOP; // 144
+  // 大型レイアウト定数
+  const BOX_H = 64;
+  const GAP = 16;
+  const TOP = 10;
+  const Y_TOP = TOP;
+  const Y_MID = TOP + BOX_H + GAP;
+  const Y_BOT = TOP + (BOX_H + GAP) * 2;
+  const C_TOP = Y_TOP + BOX_H / 2;
+  const C_MID = Y_MID + BOX_H / 2;
+  const C_BOT = Y_BOT + BOX_H / 2;
+  const VB_H = Y_BOT + BOX_H + TOP;
+
+  // 横方向の座標
+  const PLANNER_X = 30;
+  const PLANNER_W = 120;
+  const PARALLEL_X = 300;
+  const PARALLEL_W = 240;
+  const REVIEWER_X = 680;
+  const REVIEWER_W = 150;
+  const VB_W = REVIEWER_X + REVIEWER_W + 30;
 
   return (
     <svg
-      viewBox={`0 0 640 ${VB_H}`}
+      viewBox={`0 0 ${VB_W} ${VB_H}`}
       xmlns="http://www.w3.org/2000/svg"
       className="w-full h-auto block"
       role="img"
       aria-label="パイプライン: Planner から並列3 Agent を経て Reviewer へ"
     >
-      {/* Planner → parallel コネクタ（Planner の右端中央 (90, C_MID) から各並列の左端中央へ） */}
+      {/* Planner → parallel コネクタ */}
       <path
-        d={`M 90 ${C_MID} L 200 ${C_TOP}`}
+        d={`M ${PLANNER_X + PLANNER_W} ${C_MID} L ${PARALLEL_X} ${C_TOP}`}
         {...connStyle(connColorIn(agentStates.DecisionAgent), agentStates.DecisionAgent)}
       />
       <path
-        d={`M 90 ${C_MID} L 200 ${C_MID}`}
+        d={`M ${PLANNER_X + PLANNER_W} ${C_MID} L ${PARALLEL_X} ${C_MID}`}
         {...connStyle(connColorIn(agentStates.EdgeCaseAgent), agentStates.EdgeCaseAgent)}
       />
       <path
-        d={`M 90 ${C_MID} L 200 ${C_BOT}`}
+        d={`M ${PLANNER_X + PLANNER_W} ${C_MID} L ${PARALLEL_X} ${C_BOT}`}
         {...connStyle(connColorIn(agentStates.PastPRDAgent), agentStates.PastPRDAgent)}
       />
 
-      {/* parallel → Reviewer コネクタ（各並列の右端中央から Reviewer 左端中央 (490, C_MID) へ） */}
+      {/* parallel → Reviewer コネクタ */}
       <path
-        d={`M 380 ${C_TOP} L 490 ${C_MID}`}
+        d={`M ${PARALLEL_X + PARALLEL_W} ${C_TOP} L ${REVIEWER_X} ${C_MID}`}
         {...connStyle(connColorOut(agentStates.DecisionAgent), agentStates.DecisionAgent)}
       />
       <path
-        d={`M 380 ${C_MID} L 490 ${C_MID}`}
+        d={`M ${PARALLEL_X + PARALLEL_W} ${C_MID} L ${REVIEWER_X} ${C_MID}`}
         {...connStyle(connColorOut(agentStates.EdgeCaseAgent), agentStates.EdgeCaseAgent)}
       />
       <path
-        d={`M 380 ${C_BOT} L 490 ${C_MID}`}
+        d={`M ${PARALLEL_X + PARALLEL_W} ${C_BOT} L ${REVIEWER_X} ${C_MID}`}
         {...connStyle(connColorOut(agentStates.PastPRDAgent), agentStates.PastPRDAgent)}
       />
 
-      {/* Planner: 並列中央列に縦中心を合わせる */}
-      <PipelineBox x={20} y={Y_MID} w={70} h={BOX_H} centered style={planner} name={PLANNER.fullName} />
-
-      {/* Parallel 3: 8px のギャップ */}
-      <PipelineBox x={200} y={Y_TOP} w={180} h={BOX_H} style={decision} name="Decision Agent" />
-      <PipelineBox x={200} y={Y_MID} w={180} h={BOX_H} style={edgeCase} name="EdgeCase Agent" />
-      <PipelineBox x={200} y={Y_BOT} w={180} h={BOX_H} style={pastPrd} name="Past PRD Agent" />
-
-      {/* Reviewer: 並列中央列に縦中心を合わせる */}
-      <PipelineBox x={490} y={Y_MID} w={130} h={BOX_H} centered style={reviewer} name={REVIEWER.fullName} />
+      <PipelineBox x={PLANNER_X} y={Y_MID} w={PLANNER_W} h={BOX_H} centered style={planner} name={PLANNER.fullName} />
+      <PipelineBox x={PARALLEL_X} y={Y_TOP} w={PARALLEL_W} h={BOX_H} style={decision} name="Decision Agent" />
+      <PipelineBox x={PARALLEL_X} y={Y_MID} w={PARALLEL_W} h={BOX_H} style={edgeCase} name="EdgeCase Agent" />
+      <PipelineBox x={PARALLEL_X} y={Y_BOT} w={PARALLEL_W} h={BOX_H} style={pastPrd} name="Past PRD Agent" />
+      <PipelineBox x={REVIEWER_X} y={Y_MID} w={REVIEWER_W} h={BOX_H} centered style={reviewer} name={REVIEWER.fullName} />
     </svg>
   );
 }
@@ -374,7 +376,7 @@ function PipelineBox({
   style: ReturnType<typeof styleFor>;
   name: string;
 }) {
-  const textX = centered ? x + w / 2 : x + 12;
+  const textX = centered ? x + w / 2 : x + 16;
   const anchor = centered ? "middle" : "start";
   return (
     <g>
@@ -383,24 +385,24 @@ function PipelineBox({
         y={y}
         width={w}
         height={h}
-        rx={6}
+        rx={8}
         fill={style.fill}
         stroke={style.stroke}
-        strokeWidth={0.5}
+        strokeWidth={1}
       />
       <text
         x={textX}
-        y={y + 18}
+        y={y + 26}
         textAnchor={anchor}
-        style={{ fontSize: "13px", fontWeight: 500, fill: style.textFill }}
+        style={{ fontSize: "15px", fontWeight: 600, fill: style.textFill }}
       >
         {name}
       </text>
       <text
         x={textX}
-        y={y + 32}
+        y={y + 46}
         textAnchor={anchor}
-        style={{ fontSize: "11px", fill: style.subFill }}
+        style={{ fontSize: "13px", fill: style.subFill }}
       >
         {style.label}
       </text>
@@ -408,7 +410,6 @@ function PipelineBox({
   );
 }
 
-// styleFor の戻り値の型を取り出すための tiny helper（PipelineBox の prop 型用）。
 function styleFor(s: AgentState) {
   if (s === "completed")
     return {
@@ -436,7 +437,7 @@ function styleFor(s: AgentState) {
 }
 
 // ---------------------------------------------------------------------------
-// レーン詳細（dot + 進捗バー）
+// レーン詳細（大型）
 // ---------------------------------------------------------------------------
 
 function AgentLane({ agent, state }: { agent: AgentDef; state: AgentState }) {
@@ -453,76 +454,50 @@ function AgentLane({ agent, state }: { agent: AgentDef; state: AgentState }) {
       : state === "running"
         ? "bg-running"
         : "bg-pending";
+  const statusLabel =
+    state === "completed" ? "完了" : state === "running" ? "実行中" : "待機";
+  const statusClass =
+    state === "completed"
+      ? "text-success"
+      : state === "running"
+        ? "text-running"
+        : "text-text-tertiary";
 
   return (
-    <div className="bg-card border-[0.5px] border-border rounded-md p-3">
-      <div className="flex items-center justify-between mb-2">
+    <div className="bg-card border-[0.5px] border-border rounded-lg p-4 flex flex-col gap-3">
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <span
-            className={`inline-block w-2 h-2 rounded-full ${dotClass}`}
-            aria-hidden="true"
-          />
-          <span className="text-[13px] font-medium">{agent.shortName}</span>
+          <span className={`inline-block w-2 h-2 rounded-full ${dotClass}`} aria-hidden="true" />
+          <span className="text-xs text-text-muted">{agent.sectionName}</span>
         </div>
-        <span
-          className={`text-[12px] tabular-nums ${state === "completed" ? "text-success" : "text-text-muted"}`}
-        >
-          {state === "completed" ? "✓ 完了" : state === "running" ? "実行中" : "待機"}
-        </span>
+        <span className={`text-xs tabular-nums ${statusClass}`}>{statusLabel}</span>
       </div>
-      <div className="h-1 bg-bg-secondary rounded-full overflow-hidden mb-2">
-        <div
-          className={`h-full transition-all duration-500 ${barClass}`}
-          style={{ width: `${progressPct}%` }}
-        />
+      <p className="text-[15px] font-semibold m-0">{agent.shortName}</p>
+      <div className="h-1 bg-bg-secondary rounded-full overflow-hidden">
+        <div className={`h-full transition-all duration-500 ${barClass}`} style={{ width: `${progressPct}%` }} />
       </div>
-      <div className="text-[12px] text-text-muted leading-relaxed min-h-[64px]">
-        {state === "idle" && <div className="text-text-tertiary">待機中</div>}
+      <div className="text-[12px] text-text-muted min-h-[18px]">
+        {state === "idle" && <span className="text-text-tertiary">待機中</span>}
         {state === "running" && (
-          <div className="text-text-tertiary inline-flex items-center gap-1">
-            <svg
-              className="animate-spin"
-              width="11"
-              height="11"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
+          <span className="text-text-tertiary inline-flex items-center gap-1">
+            <svg className="animate-spin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M21 12a9 9 0 1 1-6.219-8.56" />
             </svg>
             分析中…
-          </div>
+          </span>
         )}
         {state === "completed" && (
-          <div className="text-success inline-flex items-center gap-1">
-            <svg
-              width="11"
-              height="11"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="3"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
+          <span className="text-success inline-flex items-center gap-1">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="20 6 9 17 4 12" />
             </svg>
             完了
-          </div>
+          </span>
         )}
       </div>
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// 経過時間表示
-// ---------------------------------------------------------------------------
 
 function formatElapsed(secs: number): string {
   const m = String(Math.floor(secs / 60)).padStart(2, "0");

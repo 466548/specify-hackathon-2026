@@ -47,8 +47,7 @@ export async function POST(request: Request): Promise<Response> {
     method: "POST",
     headers,
     body,
-    // @ts-expect-error: Node 18+ の undici で streaming body を送るのに必要。
-    // 型定義に未反映だがランタイムは受け付ける（Web Fetch 仕様の duplex）。
+    // @ts-ignore: Node 18+ の undici で streaming body を送るのに必要な duplex プロパティ。
     duplex: "half",
   });
 

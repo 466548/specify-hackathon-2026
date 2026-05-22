@@ -3,24 +3,18 @@
 /**
  * 結果画面（/result?session=<id>）。
  *
- * Week 6 デザイン磨き (5/18) で「読み物」から「意思決定可能な UI」に格上げ。
- * モック: Downloads/03_specify_result.html を参考に、
- *   - 矛盾アラートを上部の警告バナーに格上げ（過去 PRD との矛盾を最も目立つ位置に）
- *   - フィルタタブ（すべて / 必須 / 推奨 / 未決定）
- *   - 各論点カード:
- *       選択肢ボタン → メモ入力 → 決定ボタン → 「決定済み」ステータス
- *       選択肢が決まらないと決定ボタンは disabled。決定すると進捗バーが進む
- *   - 全件決定で「Notion / Markdown エクスポート」が有効化（実エクスポートはまだ）
- *
- * 状態保存: ページリロードで決定状態を失わないよう sessionStorage に保持
- * （session 単位、Result 以外の画面では使わない）。
+ * ハッカソン提出版でモック準拠の 2 カラムレイアウトに刷新:
+ *   - 上部 4 タイル統計（意思決定論点 / 必須 / 推奨 / Past PRD 矛盾）
+ *   - 矛盾アラート（「確認する」で Past PRD 由来フィルター）
+ *   - フィルタタブ（すべて / 必須 / 推奨 / 未決定のみ）
+ *   - 左メイン: アコーディオン化した論点カードリスト + 画面プレビュー
+ *   - 右サイドバー: 決定状況 + 優先度内訳 + エクスポート + 新しい PRD
  */
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
 import { DEMO_PRDS } from "@/lib/demo-prds";
 import {
   copyMarkdownToClipboard,
@@ -33,7 +27,6 @@ import { MockModalPreview } from "./MockModalPreview";
 import { ShiftAutoPreview } from "./ShiftAutoPreview";
 import { ReportMonthlyPreview } from "./ReportMonthlyPreview";
 
-// PRD label を組み立てる（エクスポート Markdown ヘッダー用）。
 function buildPrdLabel(prdId: string | null): string {
   if (!prdId) return "PRD";
   const def = DEMO_PRDS.find((p) => p.id === prdId);
@@ -41,10 +34,9 @@ function buildPrdLabel(prdId: string | null): string {
   return `[${def.category}] ${def.title}`;
 }
 
-// Markdown ダウンロード。result が無ければ no-op。
 function handleExportMarkdown(
   result: Result | null,
-  decisionStates: Record<number, { selectedOption: string | null; memo: string; decided: boolean }>,
+  decisionStates: Record<number, DecisionState>,
   prdId: string | null,
 ): void {
   if (!result) return;
@@ -53,11 +45,9 @@ function handleExportMarkdown(
   downloadMarkdown(filename, md);
 }
 
-// Notion 連携: 公式 API は使わず「Markdown をクリップボードへコピー → Notion で貼り付け」
-// の運用にする (secret 管理を避けつつ Notion 側のリッチ表示は維持できる)。
 async function handleExportNotion(
   result: Result | null,
-  decisionStates: Record<number, { selectedOption: string | null; memo: string; decided: boolean }>,
+  decisionStates: Record<number, DecisionState>,
   prdId: string | null,
   setNote: (msg: string | null) => void,
 ): Promise<void> {
@@ -73,10 +63,6 @@ async function handleExportNotion(
   }
 }
 
-// PRD ごとの画面プレビュー切替。
-// - user-add は MockModalPreview（5 状態切替の作り込み版、唯一インタラクティブ）
-// - shift-auto / report-monthly は静的な概念図 mock
-// - それ以外は preview 非表示
 function renderPreview(prdId: string | null): React.ReactNode {
   if (prdId === "user-add") return <MockModalPreview />;
   if (prdId === "shift-auto") return <ShiftAutoPreview />;
@@ -84,7 +70,6 @@ function renderPreview(prdId: string | null): React.ReactNode {
   return null;
 }
 
-// 1 つの論点に対するユーザーの決定状態。
 interface DecisionState {
   selectedOption: string | null;
   memo: string;
@@ -93,7 +78,6 @@ interface DecisionState {
 
 type FilterValue = "all" | "must" | "should" | "undecided";
 
-// 決定状態の sessionStorage キー。Result 内専用なのでこのファイルに閉じる。
 function decisionsKey(sessionId: string): string {
   return `session:${sessionId}:decisions`;
 }
@@ -130,13 +114,10 @@ function ResultInner() {
     Record<number, DecisionState>
   >({});
   const [filter, setFilter] = useState<FilterValue>("all");
-  // Step 3: ContradictionAlert のボタンで Past PRD 由来の論点のみに絞る追加フィルター。
-  // 既存の filter（必須/推奨/未決定）と AND で組み合わせる。
   const [pastPrdOnly, setPastPrdOnly] = useState(false);
-  // Notion 用「Markdown をクリップボードにコピー」した際の一時メッセージ。
   const [exportNote, setExportNote] = useState<string | null>(null);
+  const [openCardIdx, setOpenCardIdx] = useState<number | null>(0);
 
-  // sessionStorage は SSR で no-op のためマウント後に effect で読む。
   useEffect(() => {
     if (!sessionId) {
       router.replace("/");
@@ -152,7 +133,6 @@ function ResultInner() {
       }
       setResult(r);
       setPrdId(loadPrdId(sessionId));
-      // 既存の決定状態を復元（ブラウザバック対応）。
       const saved = loadDecisionStates(sessionId);
       if (saved) {
         setDecisionStates(saved);
@@ -163,7 +143,6 @@ function ResultInner() {
     };
   }, [sessionId, router]);
 
-  // decisionStates が変わるたびに sessionStorage に書き戻す。
   useEffect(() => {
     if (!sessionId || !result) return;
     saveDecisionStates(sessionId, decisionStates);
@@ -174,7 +153,6 @@ function ResultInner() {
     [decisionStates],
   );
 
-  // フィルタ後の decisions（index 情報を保持したまま絞る）。
   const filteredDecisions = useMemo(() => {
     if (!result) return [];
     return result.decisions
@@ -191,8 +169,26 @@ function ResultInner() {
   if (!result) return null;
 
   const total = result.decisions.length;
-  const progressPct = total === 0 ? 0 : Math.round((decidedCount / total) * 100);
-  const allDecided = total > 0 && decidedCount === total;
+  const mustCount = result.decisions.filter((d) => d.priority === "must").length;
+  const shouldCount = result.decisions.filter((d) => d.priority === "should").length;
+  const niceCount = result.decisions.filter((d) => d.priority === "nice").length;
+  const contradictionsCount = result.contradictions.length;
+  const undecidedCount = total - decidedCount;
+  const mustUndecided = result.decisions.filter(
+    (d, i) => d.priority === "must" && !decisionStates[i]?.decided,
+  ).length;
+  const decidedByPriority = {
+    must: result.decisions.filter(
+      (d, i) => d.priority === "must" && decisionStates[i]?.decided,
+    ).length,
+    should: result.decisions.filter(
+      (d, i) => d.priority === "should" && decisionStates[i]?.decided,
+    ).length,
+    nice: result.decisions.filter(
+      (d, i) => d.priority === "nice" && decisionStates[i]?.decided,
+    ).length,
+  };
+  const canExportMust = mustCount === 0 || decidedByPriority.must === mustCount;
 
   function handleSelectOption(decisionIdx: number, option: string) {
     setDecisionStates((prev) => ({
@@ -217,118 +213,61 @@ function ResultInner() {
   function handleDecide(decisionIdx: number) {
     setDecisionStates((prev) => {
       const cur = prev[decisionIdx];
-      if (!cur?.selectedOption) return prev; // 選択肢未選択なら何もしない（UI で disabled だが保険）
-      return {
-        ...prev,
-        [decisionIdx]: { ...cur, decided: true },
-      };
+      if (!cur?.selectedOption) return prev;
+      return { ...prev, [decisionIdx]: { ...cur, decided: true } };
     });
   }
 
-  const filterCounts = {
-    all: total,
-    must: result.decisions.filter((d) => d.priority === "must").length,
-    should: result.decisions.filter((d) => d.priority === "should").length,
-    undecided:
-      total - Object.values(decisionStates).filter((s) => s.decided).length,
-  };
-
   return (
-    <main className="flex-1 w-full max-w-3xl mx-auto px-6 py-8 flex flex-col gap-4">
+    <main className="flex-1 w-full max-w-6xl mx-auto px-6 py-10 flex flex-col gap-6">
       {/* ヘッダ */}
-      <header className="flex flex-col gap-1">
-        <h1 className="text-[22px] font-medium tracking-tight m-0">分析結果</h1>
-        <p className="text-sm text-text-muted m-0">{result.summary}</p>
+      <header className="flex flex-col gap-1.5">
+        <h1 className="text-[28px] font-semibold tracking-tight m-0">分析結果</h1>
+        <p className="text-sm text-text-muted m-0">
+          PRD から <strong className="text-text font-semibold">未決定の意思決定論点</strong>と、
+          <strong className="text-text font-semibold">過去 PRD との矛盾</strong>を抽出しました。
+        </p>
       </header>
 
-      {/* Step 4: 上部サマリーバー（数字を 1 行に集約）*/}
-      <div className="bg-bg-secondary rounded-md px-4 py-3 mt-2">
-        <p className="text-xs text-text-muted font-medium m-0 mb-1">
-          📊 分析結果サマリー
-        </p>
-        <p className="text-sm text-text m-0 leading-relaxed">
-          意思決定論点 <span className="font-semibold">{total}</span>件
-          {" ("}必須 <span className="font-semibold">{filterCounts.must}</span>
-          {" / "}推奨{" "}
-          <span className="font-semibold">{filterCounts.should}</span>
-          {")"}
-          <span className="text-text-tertiary px-2">•</span>
-          過去 PRD との矛盾{" "}
-          <span className="font-semibold">{result.contradictions.length}</span>件
-          <span className="text-text-tertiary px-2">•</span>
-          決定済み <span className="font-semibold">{decidedCount}</span>/
-          <span className="font-semibold">{total}</span>
-        </p>
-      </div>
+      {/* 4 タイル統計 */}
+      <section className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatTile value={total} label="意思決定論点" accent="default" />
+        <StatTile value={mustCount} label="必須" accent="must" />
+        <StatTile value={shouldCount} label="推奨" accent="should" />
+        <StatTile value={contradictionsCount} label="Past PRD 矛盾" accent="pastprd" />
+      </section>
+
+      {/* 矛盾アラート */}
+      <ContradictionAlert
+        contradictions={result.contradictions}
+        pastPrdOnly={pastPrdOnly}
+        onTogglePastPrdOnly={() => setPastPrdOnly((v) => !v)}
+      />
 
       <FailedBanner failed={result.meta.failed_agents} />
 
-      {/* Step 2: 論点を決定する */}
-      <Card className="mt-2">
-        <div className="flex items-center justify-between mb-3.5">
-          <div className="flex items-center gap-2">
-            <div className="w-[22px] h-[22px] rounded-full bg-bg-info text-text-info flex items-center justify-center text-xs font-medium">
-              2
-            </div>
-            <span className="text-sm font-medium">論点を決定する</span>
-          </div>
-          <div className="flex items-center gap-2.5 text-xs text-text-muted">
-            <span>
-              決定済み{" "}
-              <span className="text-text font-medium">{decidedCount}</span> /{" "}
-              <span>{total}</span>
-            </span>
-            <div className="w-[100px] h-1.5 bg-bg-secondary rounded-full overflow-hidden">
-              <div
-                className="h-full bg-text-info transition-all"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-          </div>
-        </div>
+      {/* フィルタタブ */}
+      <div className="flex gap-1.5 flex-wrap -mt-2">
+        <FilterTab active={filter === "all"} onClick={() => setFilter("all")} count={total}>
+          すべて
+        </FilterTab>
+        <FilterTab active={filter === "must"} onClick={() => setFilter("must")} count={mustCount}>
+          <span className="inline-block w-2 h-2 rounded-full bg-[#D14343] mr-1.5 align-middle" />必須
+        </FilterTab>
+        <FilterTab active={filter === "should"} onClick={() => setFilter("should")} count={shouldCount}>
+          <span className="inline-block w-2 h-2 rounded-full bg-[#D9A441] mr-1.5 align-middle" />推奨
+        </FilterTab>
+        <FilterTab active={filter === "undecided"} onClick={() => setFilter("undecided")} count={undecidedCount}>
+          未決定のみ
+        </FilterTab>
+      </div>
 
-        {/* 矛盾アラート（最上部に格上げ） */}
-        <ContradictionAlert
-          contradictions={result.contradictions}
-          pastPrdOnly={pastPrdOnly}
-          onTogglePastPrdOnly={() => setPastPrdOnly((v) => !v)}
-        />
-
-        {/* フィルタタブ */}
-        <div className="flex gap-1.5 mb-3 flex-wrap">
-          <FilterTab
-            active={filter === "all"}
-            onClick={() => setFilter("all")}
-            count={filterCounts.all}
-          >
-            すべて
-          </FilterTab>
-          <FilterTab
-            active={filter === "must"}
-            onClick={() => setFilter("must")}
-            count={filterCounts.must}
-          >
-            🔴 必須
-          </FilterTab>
-          <FilterTab
-            active={filter === "should"}
-            onClick={() => setFilter("should")}
-            count={filterCounts.should}
-          >
-            🟡 推奨
-          </FilterTab>
-          <FilterTab
-            active={filter === "undecided"}
-            onClick={() => setFilter("undecided")}
-          >
-            未決定のみ
-          </FilterTab>
-        </div>
-
-        {/* 論点カード一覧 */}
-        <div className="flex flex-col gap-2.5">
+      {/* 2 カラム: 左メイン + 右サイドバー */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6 items-start">
+        {/* 左メイン */}
+        <div className="flex flex-col gap-2.5 min-w-0">
           {filteredDecisions.length === 0 ? (
-            <p className="text-sm text-text-muted py-4 text-center">
+            <p className="text-sm text-text-muted py-8 text-center">
               該当する論点はありません。
             </p>
           ) : (
@@ -336,71 +275,144 @@ function ResultInner() {
               <DecisionCard
                 key={i}
                 decision={d}
-                state={
-                  decisionStates[i] ?? {
-                    selectedOption: null,
-                    memo: "",
-                    decided: false,
-                  }
-                }
+                state={decisionStates[i] ?? { selectedOption: null, memo: "", decided: false }}
+                isOpen={openCardIdx === i}
+                onToggle={() => setOpenCardIdx(openCardIdx === i ? null : i)}
                 onSelectOption={(opt) => handleSelectOption(i, opt)}
                 onMemoChange={(m) => handleMemoChange(i, m)}
                 onDecide={() => handleDecide(i)}
               />
             ))
           )}
-        </div>
-      </Card>
 
-      {/* Step 3: 画面プレビュー（PRD ごとに mock を切替、対応なしは非表示） */}
-      {renderPreview(prdId)}
-
-      {/* エクスポートバー */}
-      <div className="bg-bg-secondary rounded-lg px-4 py-3.5 flex items-center justify-between gap-3 mt-2">
-        <div className="flex-1">
-          <p className="text-[13px] font-medium m-0 mb-0.5">
-            決定事項を反映した改訂版 PRD をエクスポート
-          </p>
-          <p className="text-[11px] text-text-muted m-0">
-            {allDecided
-              ? "決定済み / 未決定 / 矛盾 をまとめた Markdown を生成します"
-              : "すべての項目を決定すると有効になります"}
-          </p>
-          {exportNote && (
-            <p className="text-[11px] text-success m-0 mt-1">{exportNote}</p>
-          )}
+          {/* 画面プレビュー */}
+          {renderPreview(prdId)}
         </div>
-        <div className="flex gap-1.5">
+
+        {/* 右サイドバー */}
+        <aside className="flex flex-col gap-4 lg:sticky lg:top-6">
+          <SidebarSection>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium text-text-muted m-0">決定状況</p>
+              <p className="text-xs font-mono tabular-nums text-text-tertiary m-0">
+                {decidedCount}/{total}
+              </p>
+            </div>
+            {mustUndecided > 0 ? (
+              <p className="text-[13px] text-[#B91C1C] m-0 flex items-center gap-1.5">
+                <span className="inline-block w-2 h-2 rounded-full bg-[#D14343]" aria-hidden="true" />
+                必須 <strong>{mustUndecided}</strong> 件 が未決定
+              </p>
+            ) : (
+              <p className="text-[13px] text-success m-0">✓ 必須はすべて決定済み</p>
+            )}
+          </SidebarSection>
+
+          <SidebarSection>
+            <p className="text-xs font-medium text-text-muted m-0 mb-2.5">優先度内訳</p>
+            <ul className="flex flex-col gap-1.5 m-0 p-0 list-none text-[13px]">
+              <PriorityBreakdownRow color="#D14343" label="必須" decided={decidedByPriority.must} total={mustCount} />
+              <PriorityBreakdownRow color="#D9A441" label="推奨" decided={decidedByPriority.should} total={shouldCount} />
+              <PriorityBreakdownRow color="#888780" label="任意" decided={decidedByPriority.nice} total={niceCount} />
+            </ul>
+          </SidebarSection>
+
+          <SidebarSection>
+            <p className="text-xs font-medium text-text-muted m-0 mb-2.5">エクスポート</p>
+            <p className="text-[11px] text-text-tertiary m-0 mb-2.5 leading-relaxed">
+              {canExportMust
+                ? "決定内容を Markdown でダウンロード or Notion に貼り付けできます。"
+                : `必須論点を ${mustCount} 件決定するとエクスポートできます`}
+            </p>
+            <div className="flex flex-col gap-1.5">
+              <button
+                type="button"
+                disabled={!canExportMust}
+                onClick={() => handleExportMarkdown(result, decisionStates, prdId)}
+                className="text-xs px-3 py-1.5 bg-card border-[0.5px] border-border-strong rounded-md disabled:opacity-40 hover:bg-bg-secondary inline-flex items-center gap-1.5 justify-center"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                Markdown ダウンロード
+              </button>
+              <button
+                type="button"
+                disabled={!canExportMust}
+                onClick={() => handleExportNotion(result, decisionStates, prdId, setExportNote)}
+                className="text-xs px-3 py-1.5 bg-card border-[0.5px] border-border-strong rounded-md disabled:opacity-40 hover:bg-bg-secondary inline-flex items-center gap-1.5 justify-center"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                Notion 用コピー
+              </button>
+              {exportNote && (
+                <p className="text-[11px] text-success m-0 mt-1">{exportNote}</p>
+              )}
+            </div>
+          </SidebarSection>
+
           <button
             type="button"
-            disabled={!allDecided}
-            onClick={() => handleExportNotion(result, decisionStates, prdId, setExportNote)}
-            className="text-xs px-3 py-1.5 bg-card border-[0.5px] border-border-strong rounded-md disabled:opacity-50 hover:bg-bg-secondary"
+            onClick={() => router.push("/")}
+            className="text-xs text-text-tertiary hover:text-text-muted hover:bg-bg-secondary inline-flex items-center gap-1 mt-1 px-2 py-1 -mx-2 rounded-md transition-colors"
           >
-            Notion
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+            新しい PRD を分析
           </button>
-          <button
-            type="button"
-            disabled={!allDecided}
-            onClick={() => handleExportMarkdown(result, decisionStates, prdId)}
-            className="text-xs px-3 py-1.5 bg-card border-[0.5px] border-border-strong rounded-md disabled:opacity-50 hover:bg-bg-secondary"
-          >
-            Markdown
-          </button>
-        </div>
-      </div>
-
-      <div className="flex justify-end mt-2">
-        <Button variant="secondary" onClick={() => router.push("/")}>
-          新しい PRD を分析
-        </Button>
+        </aside>
       </div>
     </main>
   );
 }
 
 // ---------------------------------------------------------------------------
-// 矛盾アラート（最上部）
+// 統計タイル（上部 4 個）
+// ---------------------------------------------------------------------------
+
+function StatTile({
+  value,
+  label,
+  accent,
+}: {
+  value: number;
+  label: string;
+  accent: "default" | "must" | "should" | "pastprd";
+}) {
+  const borderColor = {
+    default: "#E5E1D8",
+    must: "#D14343",
+    should: "#D9A441",
+    pastprd: "#F59E0B",
+  }[accent];
+  const valueColor = {
+    default: "var(--color-text)",
+    must: "#B91C1C",
+    should: "#92400E",
+    pastprd: "#92400E",
+  }[accent];
+  return (
+    <div
+      className="bg-card border-[0.5px] border-border rounded-lg px-4 py-3.5 border-l-[4px]"
+      style={{ borderLeftColor: borderColor }}
+    >
+      <p className="text-[28px] font-semibold tabular-nums m-0 leading-none" style={{ color: valueColor }}>
+        {value}
+      </p>
+      <p className="text-xs text-text-muted m-0 mt-1.5">{label}</p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 矛盾アラート
 // ---------------------------------------------------------------------------
 
 function ContradictionAlert({
@@ -415,46 +427,28 @@ function ContradictionAlert({
   if (contradictions.length === 0) return null;
 
   return (
-    <div className="bg-bg-warning border-l-[3px] border-warning px-3.5 py-2.5 mb-3.5 rounded-r-md">
-      <div className="flex items-start gap-2.5">
-        <svg
-          className="text-warning flex-shrink-0 mt-0.5"
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-          <line x1="12" y1="9" x2="12" y2="13" />
-          <line x1="12" y1="17" x2="12.01" y2="17" />
-        </svg>
-        <div className="flex-1">
-          <p className="text-[13px] font-medium text-warning m-0 mb-0.5">
-            過去 PRD との矛盾が {contradictions.length} 件あります
-          </p>
-          <p className="text-xs text-text-muted m-0">
-            既存方針 PRD と食い違っています。下のボタンで該当論点だけを絞り込めます。
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onTogglePastPrdOnly}
-          aria-pressed={pastPrdOnly}
-          className={[
-            "text-xs px-3 py-1 border-[0.5px] rounded-md flex-shrink-0 transition",
-            pastPrdOnly
-              ? "bg-warning/15 border-warning text-warning font-medium"
-              : "bg-card border-border-strong hover:bg-bg-secondary",
-          ].join(" ")}
-        >
-          {pastPrdOnly ? "フィルターを解除" : "過去 PRD 矛盾の論点を表示"}
-        </button>
-      </div>
+    <div className="bg-bg-warning border-l-[3px] border-warning px-4 py-3 rounded-r-md flex items-center gap-3">
+      <svg className="text-warning flex-shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+        <line x1="12" y1="9" x2="12" y2="13" />
+        <line x1="12" y1="17" x2="12.01" y2="17" />
+      </svg>
+      <p className="flex-1 text-[13px] text-text m-0">
+        過去 PRD との矛盾が <strong>{contradictions.length}</strong> 件見つかりました。先に確認することをおすすめします。
+      </p>
+      <button
+        type="button"
+        onClick={onTogglePastPrdOnly}
+        aria-pressed={pastPrdOnly}
+        className={[
+          "text-xs px-3 py-1.5 border-[0.5px] rounded-md flex-shrink-0 transition",
+          pastPrdOnly
+            ? "bg-warning/20 border-warning text-warning font-medium"
+            : "bg-card border-border-strong hover:bg-bg-secondary",
+        ].join(" ")}
+      >
+        {pastPrdOnly ? "解除" : "確認する"}
+      </button>
     </div>
   );
 }
@@ -479,147 +473,214 @@ function FilterTab({
       type="button"
       onClick={onClick}
       className={[
-        "text-xs px-3 py-[5px] rounded-md border-[0.5px] border-border-strong transition",
-        active ? "bg-bg-secondary" : "bg-card hover:bg-bg-secondary",
+        "text-xs px-3 py-1.5 rounded-md border-[0.5px] transition inline-flex items-center",
+        active
+          ? "bg-text text-card border-text"
+          : "bg-card border-border-strong text-text hover:bg-bg-secondary",
       ].join(" ")}
     >
       {children}
       {count !== undefined && (
-        <span className="text-text-tertiary ml-1">{count}</span>
+        <span className={["ml-2 tabular-nums", active ? "opacity-70" : "text-text-tertiary"].join(" ")}>
+          {count}
+        </span>
       )}
     </button>
   );
 }
 
 // ---------------------------------------------------------------------------
-// 論点カード（意思決定 UI）
+// 右サイドバーセクション
 // ---------------------------------------------------------------------------
+
+function SidebarSection({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-card border-[0.5px] border-border rounded-lg px-4 py-3.5">
+      {children}
+    </div>
+  );
+}
+
+function PriorityBreakdownRow({
+  color,
+  label,
+  decided,
+  total,
+}: {
+  color: string;
+  label: string;
+  decided: number;
+  total: number;
+}) {
+  return (
+    <li className="flex items-center justify-between">
+      <span className="flex items-center gap-1.5 text-text-muted">
+        <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
+        {label}
+      </span>
+      <span className="font-mono tabular-nums">
+        <strong className="text-text">{decided}</strong>
+        <span className="text-text-tertiary">/{total}</span>
+      </span>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 論点カード（アコーディオン）
+// ---------------------------------------------------------------------------
+
+function isPastPrd(d: Decision): boolean {
+  return d.source === "past_prd";
+}
 
 function DecisionCard({
   decision,
   state,
+  isOpen,
+  onToggle,
   onSelectOption,
   onMemoChange,
   onDecide,
 }: {
   decision: Decision;
   state: DecisionState;
+  isOpen: boolean;
+  onToggle: () => void;
   onSelectOption: (opt: string) => void;
   onMemoChange: (memo: string) => void;
   onDecide: () => void;
 }) {
   const { selectedOption, memo, decided } = state;
   const canDecide = selectedOption !== null && !decided;
-  const fromPastPrd = decision.source === "past_prd";
+  const fromPastPrd = isPastPrd(decision);
 
   return (
     <div
       className={[
-        "border-[0.5px] border-border rounded-md p-3.5 bg-card transition",
+        "border-[0.5px] border-border rounded-lg bg-card transition",
         fromPastPrd ? "border-l-[5px] border-l-[#F59E0B]" : "",
-        decided ? "bg-bg-secondary opacity-90" : "",
+        decision.priority === "must" && !fromPastPrd ? "border-l-[5px] border-l-[#D14343]" : "",
+        decided ? "bg-bg-secondary/50" : "",
       ].join(" ")}
     >
-      {/* タグ行 */}
-      <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-        <PriorityBadgeNew priority={decision.priority} />
-        <span
-          className="text-[11px] px-2 py-0.5 rounded-md"
-          style={{
-            backgroundColor: (CATEGORY_COLOR[decision.category] ?? CATEGORY_COLOR.other).bg,
-            color: (CATEGORY_COLOR[decision.category] ?? CATEGORY_COLOR.other).fg,
-          }}
-        >
-          {categoryLabel(decision.category)}
-        </span>
-        {fromPastPrd && (
+      {/* ヘッダ（クリックで展開） */}
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full text-left px-4 py-3 flex items-center gap-3"
+        aria-expanded={isOpen}
+      >
+        <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+          <PriorityBadgeNew priority={decision.priority} />
           <span
-            className="text-[11px] px-2 py-0.5 rounded-md font-medium"
-            style={{ backgroundColor: "#FEF3C7", color: "#8B5A00" }}
+            className="text-[11px] px-2 py-0.5 rounded-md"
+            style={{
+              backgroundColor: (CATEGORY_COLOR[decision.category] ?? CATEGORY_COLOR.other).bg,
+              color: (CATEGORY_COLOR[decision.category] ?? CATEGORY_COLOR.other).fg,
+            }}
           >
-            🔗 Past PRD
+            {categoryLabel(decision.category)}
           </span>
-        )}
-        <span
-          className={[
-            "ml-auto text-[11px]",
-            decided ? "text-success font-medium" : "text-text-tertiary",
-          ].join(" ")}
-        >
+          {fromPastPrd && (
+            <span
+              className="text-[11px] px-2 py-0.5 rounded-md font-medium inline-flex items-center gap-1"
+              style={{ backgroundColor: "#FEF3C7", color: "#8B5A00" }}
+            >
+              ⚠ Past PRD
+            </span>
+          )}
+          <p className="text-[14px] font-medium m-0 ml-1 truncate">{decision.title}</p>
+        </div>
+        <span className={["text-[11px] tabular-nums shrink-0", decided ? "text-success font-medium" : "text-text-tertiary"].join(" ")}>
           {decided ? "✓ 決定済み" : "未決定"}
         </span>
-      </div>
+        <svg
+          className={["text-text-tertiary transition-transform shrink-0", isOpen ? "rotate-180" : ""].join(" ")}
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
 
-      <p className="text-sm font-medium m-0 mb-1">{decision.title}</p>
-      <p className="text-xs text-text-muted m-0 mb-2.5 leading-relaxed">
-        {decision.rationale}
-      </p>
+      {/* 展開部分 */}
+      {isOpen && (
+        <div className="px-4 pb-4 pt-1 flex flex-col gap-3 border-t-[0.5px] border-border">
+          <p className="text-[13px] text-text-muted m-0 leading-relaxed mt-2">
+            {decision.rationale}
+          </p>
 
-      {/* 選択肢 */}
-      <div className="flex gap-1.5 flex-wrap mb-2">
-        {decision.options.map((opt) => (
+          <div className="flex flex-col gap-1.5">
+            <p className="text-[11px] font-medium text-text-muted m-0">選択肢</p>
+            {decision.options.map((opt) => (
+              <label
+                key={opt}
+                className={[
+                  "flex items-center gap-2.5 px-3 py-2 text-[13px] rounded-md border-[0.5px] cursor-pointer transition",
+                  selectedOption === opt
+                    ? "bg-bg-info/30 border-text-info"
+                    : "bg-card border-border hover:bg-bg-secondary",
+                  decided ? "cursor-default" : "",
+                ].join(" ")}
+              >
+                <input
+                  type="radio"
+                  name={`opt-${decision.title}`}
+                  checked={selectedOption === opt}
+                  onChange={() => !decided && onSelectOption(opt)}
+                  disabled={decided}
+                  className="accent-text-info"
+                />
+                {opt}
+              </label>
+            ))}
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <p className="text-[11px] font-medium text-text-muted m-0">メモ (任意)</p>
+            <textarea
+              value={memo}
+              onChange={(e) => onMemoChange(e.target.value)}
+              placeholder="判断の根拠や補足を記入..."
+              aria-label="メモ"
+              disabled={decided}
+              rows={2}
+              className="w-full text-[13px] font-sans px-3 py-2 bg-card border-[0.5px] border-border rounded-md focus:outline-none focus:border-text-info disabled:bg-bg-secondary resize-y"
+            />
+          </div>
+
           <button
-            key={opt}
             type="button"
-            onClick={() => !decided && onSelectOption(opt)}
-            disabled={decided}
+            onClick={onDecide}
+            disabled={!canDecide}
             className={[
-              "text-xs px-2.5 py-[5px] rounded-md border-[0.5px] transition",
-              selectedOption === opt
-                ? "bg-bg-info text-text-info border-text-info"
-                : "bg-card border-border-strong hover:bg-bg-secondary",
-              decided ? "cursor-default" : "",
+              "text-[13px] px-3.5 py-2 rounded-md border-[0.5px] inline-flex items-center justify-center gap-1.5 transition self-start",
+              canDecide
+                ? "bg-text text-card border-text hover:opacity-90"
+                : "bg-card border-border text-text-tertiary opacity-50 cursor-not-allowed",
             ].join(" ")}
           >
-            {opt}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            {decided ? "決定済み" : "この内容で決定する"}
           </button>
-        ))}
-      </div>
-
-      {/* メモ + 決定ボタン */}
-      <div className="flex gap-2 items-center">
-        <input
-          type="text"
-          value={memo}
-          onChange={(e) => onMemoChange(e.target.value)}
-          placeholder="メモ (任意)"
-          aria-label="メモ"
-          disabled={decided}
-          className="flex-1 h-[30px] text-xs font-sans px-2.5 bg-card border-[0.5px] border-border-strong rounded-md focus:outline-none focus:border-text-info disabled:bg-bg-secondary"
-        />
-        <button
-          type="button"
-          onClick={onDecide}
-          disabled={!canDecide}
-          className={[
-            "text-xs px-3 py-[5px] rounded-md border-[0.5px] border-border-strong inline-flex items-center gap-1 transition",
-            canDecide
-              ? "bg-card hover:bg-bg-secondary"
-              : "bg-card opacity-40 cursor-not-allowed",
-          ].join(" ")}
-        >
-          決定
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        </button>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Priority バッジ（モックの色合いに変更）
+// 優先度バッジ
 // ---------------------------------------------------------------------------
 
 function PriorityBadgeNew({ priority }: { priority: Priority }) {
@@ -657,8 +718,6 @@ function categoryLabel(category: string): string {
   return map[category] ?? category;
 }
 
-// 優先度バッジ（必須=赤 / 推奨=黄）と被らない配色。
-// other は既存のグレーをソリッド色で再現してフォールバックに使う。
 const CATEGORY_COLOR: Record<string, { bg: string; fg: string }> = {
   validation: { bg: "#DBEAFE", fg: "#1E40AF" },
   empty_state: { bg: "#F3E8FF", fg: "#6B21A8" },
