@@ -26,3 +26,8 @@ uv sync
 - `microsoft-agent-framework` — エージェントオーケストレーション
 - `openai` — OpenAI / Azure OpenAI クライアント
 - `python-dotenv` — `.env` 読み込み（リポジトリルートの `.env` を参照）
+
+## セキュリティ
+
+- `SPECIFY_ANALYZE_TOKEN` を設定すると `/api/analyze` 系が `X-Specify-Token` で保護される
+- 同時にクライアント IP 単位の簡易レート制限が有効になる

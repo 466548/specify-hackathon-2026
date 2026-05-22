@@ -72,7 +72,6 @@ function AnalyzingInner() {
 
   // 経過時間カウンタ。retryKey が変わったら 0 から再開する。
   useEffect(() => {
-    setElapsed(0);
     const timer = setInterval(() => setElapsed((e) => e + 1), 1000);
     return () => clearInterval(timer);
   }, [retryKey]);
@@ -141,6 +140,7 @@ function AnalyzingInner() {
       sseStartedRef.current = false;
       setError(null);
       setEvents([]);
+      setElapsed(0);
       setAgentStates({
         PlannerAgent: "idle",
         DecisionAgent: "idle",

@@ -138,31 +138,29 @@ function ResultInner() {
 
   // sessionStorage は SSR で no-op のためマウント後に effect で読む。
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setResult(null);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPrdId(null);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDecisionStates({});
     if (!sessionId) {
       router.replace("/");
       return;
     }
-    const r = loadResult(sessionId);
-    if (!r) {
-      router.replace("/");
-      return;
-    }
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setResult(r);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPrdId(loadPrdId(sessionId));
-    // 既存の決定状態を復元（ブラウザバック対応）。
-    const saved = loadDecisionStates(sessionId);
-    if (saved) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setDecisionStates(saved);
-    }
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      const r = loadResult(sessionId);
+      if (!r) {
+        router.replace("/");
+        return;
+      }
+      setResult(r);
+      setPrdId(loadPrdId(sessionId));
+      // 既存の決定状態を復元（ブラウザバック対応）。
+      const saved = loadDecisionStates(sessionId);
+      if (saved) {
+        setDecisionStates(saved);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId, router]);
 
   // decisionStates が変わるたびに sessionStorage に書き戻す。

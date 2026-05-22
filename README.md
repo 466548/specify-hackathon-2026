@@ -28,6 +28,8 @@ cp .env.example .env
 
 最低限 `OPENAI_API_KEY` があれば Week 1〜2 の疎通確認は可能。
 Azure OpenAI への切替は Week 3 以降。
+`SPECIFY_ANALYZE_TOKEN` を設定すると `/api/analyze` 系が共有トークンで保護される。
+frontend 側は `frontend/.env.local`、backend 側はリポジトリルートの `.env` に入れる。
 
 ### 2. Backend（Python / uv）
 
