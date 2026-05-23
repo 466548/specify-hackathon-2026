@@ -3,16 +3,18 @@
 PRD から「決まっていない意思決定」を体系的に炙り出すマルチエージェント。
 Microsoft Agent Hackathon 2026 提出用プロダクト。
 
-詳細な背景・設計方針は [`CLAUDE.md`](./CLAUDE.md) を参照。
+詳細な背景・設計判断・実装解説は Zenn 記事を参照: <https://zenn.dev/466548/articles/zenn-specify-article-final>
 
 ## ディレクトリ構成
 
 ```
 .
-├── CLAUDE.md          # プロダクト方針 / Cursor・Claude Code 用の指示
 ├── README.md
 ├── .env.example       # 環境変数のひな型（.env にコピーして使う）
 ├── .gitignore
+├── docker-compose.yml # ローカル E2E 確認用
+├── scripts/           # Azure デプロイスクリプト
+├── demo-data/         # サンプル PRD（KintaiKit ユーザー追加モーダル）
 ├── frontend/          # Next.js (App Router, TypeScript)
 └── backend/           # Python 3.12 (uv) - Microsoft Agent Framework 1.0
 ```
@@ -56,6 +58,9 @@ npm run dev
 
 `http://localhost:3000` で開く。
 
-## 進め方
+## デプロイ
 
-実装フェーズと優先順位は [`CLAUDE.md`](./CLAUDE.md) の「実装の優先順位」を参照。
+Azure Container Apps（japaneast / `cae-specify` 環境）で稼働中。
+
+- Frontend: <https://specify-frontend.happyfield-8905f02b.japaneast.azurecontainerapps.io>
+- 構成スクリプト: [`scripts/`](./scripts/)（`az containerapp create` の初回構築用）
